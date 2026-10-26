@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
+import { freezeSymptomSpec } from "../gate/spec.js";
 import {
   appendEvent,
   insertRun,
@@ -9,6 +10,17 @@ import {
   type Ledger,
 } from "../orchestrator/ledger.js";
 import { createApp, getPort } from "./server.js";
+
+/** PRD §10 reference spec (issue #4): frozen via the gate, served at `symptom_spec`. */
+const FROZEN_SPEC = {
+  library: "lib",
+  versions: ["2.2.0"],
+  symptomClass: "exception",
+  errorStrings: ["boom"],
+  frames: [{ module: "lib/core.js", function: "parse" }],
+  trigger: "parse('')",
+  expectedOutput: null,
+};
 
 describe("dashboard app", () => {
   let db: Ledger;
@@ -86,6 +98,15 @@ describe("dashboard app", () => {
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.symptom_spec).toEqual({ symptom: "crash on save" });
     expect(body.summary).toEqual({ events: 1, artifacts: ["repro.py"] });
+  });
+
+  it("serves the frozen spec at symptom_spec after freezeSymptomSpec (issue #4)", async () => {
+    insertRun(db, "https://github.com/octocat/hello-world/issues/1");
+    freezeSymptomSpec(1, FROZEN_SPEC, db);
+    const res = await app.request("/api/runs/1");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.symptom_spec).toEqual({ ...FROZEN_SPEC, minMatchingFrames: 2 });
   });
 
   it("returns exactly 404 for unknown and non-integer run ids", async () => {
