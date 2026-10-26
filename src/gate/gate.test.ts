@@ -225,6 +225,68 @@ describe("gradeAgainstSpec exception class", () => {
     expect(result.detail.expectedExceptionType).toBe("ConfigError");
   });
 
+  it("never lets a word mention of the parsed class override the derived expected class", () => {
+    // "ConfigError" is the derivable expected class; ValueError only appears
+    // in the message prose and must not count as the expected class.
+    const spec = validateSymptomSpec({
+      ...EXCEPTION_RAW,
+      errorStrings: ["ConfigError: want ConfigError, got ValueError"],
+    });
+    const result = gradeAgainstSpec(spec, { exitCode: 1, stdout: "", stderr: VALUE_ERROR_STDERR, timedOut: false });
+    expect(result.verdict).toBe("not-reproduced");
+    expect(result.detail).toMatchObject({
+      parsedExceptionType: "ValueError",
+      expectedExceptionType: "ConfigError",
+    });
+  });
+
+  it("still pins the class by word mention when no leading token derives one", () => {
+    const spec = validateSymptomSpec({
+      ...EXCEPTION_RAW,
+      errorStrings: ["raises ValueError on empty input"],
+    });
+    const result = gradeAgainstSpec(spec, { exitCode: 1, stdout: "", stderr: VALUE_ERROR_STDERR, timedOut: false });
+    expect(result.verdict).toBe("reproduced");
+    expect(result.detail.expectedExceptionType).toBeNull();
+  });
+
+  it("counts every parsed frame landing on a pinned pair, recursion included", () => {
+    const spec = validateSymptomSpec({
+      ...EXCEPTION_RAW,
+      frames: [{ module: "core.py", function: "parse" }],
+      minMatchingFrames: 2,
+    });
+    const recursionStderr = [
+      "Traceback (most recent call last):",
+      '  File "/app/cli.py", line 14, in <module>',
+      '  File "/app/core.py", line 7, in parse',
+      '  File "/app/core.py", line 7, in parse',
+      "ValueError: bad value",
+    ].join("\n");
+    const result = gradeAgainstSpec(spec, { exitCode: 1, stdout: "", stderr: recursionStderr, timedOut: false });
+    expect(result.verdict).toBe("reproduced");
+    expect(result.detail).toMatchObject({ matchingFrames: 2, requiredFrames: 2 });
+  });
+
+  it("never double-credits a parsed frame against duplicated spec entries", () => {
+    const spec = validateSymptomSpec({
+      ...EXCEPTION_RAW,
+      frames: [
+        { module: "core.py", function: "parse" },
+        { module: "core.py", function: "parse" },
+      ],
+      minMatchingFrames: 2,
+    });
+    const singleHitStderr = [
+      "Traceback (most recent call last):",
+      '  File "/app/core.py", line 7, in parse',
+      "ValueError: bad value",
+    ].join("\n");
+    const result = gradeAgainstSpec(spec, { exitCode: 1, stdout: "", stderr: singleHitStderr, timedOut: false });
+    expect(result.verdict).toBe("not-reproduced");
+    expect(result.detail.matchingFrames).toBe(1);
+  });
+
   it("falls back to frames-only grading when no class is derivable from errorStrings", () => {
     const result = gradeAgainstSpec(LOWERCASE_FRAMES_SPEC, {
       exitCode: 1,

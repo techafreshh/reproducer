@@ -105,21 +105,21 @@ function basename(path: string): string {
 }
 
 /**
- * Distinct parsed frames for which some spec frame pins the same module
- * basename + function. A recursion collapsing to one module+function counts
- * once, and duplicated spec entries never double-credit a single frame.
+ * Parsed frames that land on a spec-pinned module basename + function. Every
+ * matching parsed frame counts — recursion hitting the same pinned pair in a
+ * deeper traceback counts per hit — while the pinned-side set collapses
+ * duplicated spec entries so no parsed frame is credited more than once.
  */
 function countMatchingFrames(
   parsedFrames: { module: string; function: string }[],
   specFrames: { module: string; function: string }[],
 ): number {
   const pinned = new Set(specFrames.map((frame) => `${basename(frame.module)}\u0000${frame.function}`));
-  const matched = new Set<string>();
+  let count = 0;
   for (const frame of parsedFrames) {
-    const key = `${frame.module}\u0000${frame.function}`;
-    if (pinned.has(key)) matched.add(key);
+    if (pinned.has(`${frame.module}\u0000${frame.function}`)) count++;
   }
-  return matched.size;
+  return count;
 }
 
 /** Trim and collapse runs of whitespace so output comparisons ignore layout. */
@@ -233,13 +233,14 @@ export function gradeAgainstSpec(spec: SymptomSpec, envResult: EnvRunResult): Ga
 
   const derivableClasses = expectedExceptionClasses(spec.errorStrings);
   const parsedLast = lastSegment(parsed.exceptionType);
-  // Fallback: an error string naming the parsed class outside the leading
-  // token ("raised ValueError when empty") still pins it.
+  // Fallback: only when no leading token derives a class, an error string
+  // naming the parsed class in prose ("raises ValueError when empty") still
+  // pins it — a derived expected class is never overridden by a word mention.
   const wordPinned = spec.errorStrings.some((errorString) =>
     errorString.split(/[^A-Za-z0-9_]/).includes(parsedLast),
   );
   const classPinned = derivableClasses.length > 0 || wordPinned;
-  const classMatched = derivableClasses.includes(parsedLast) || wordPinned;
+  const classMatched = derivableClasses.includes(parsedLast) || (derivableClasses.length === 0 && wordPinned);
   const expectedExceptionType = derivableClasses[0] ?? null;
   const framesPinned = spec.frames.length > 0;
   const requiredFrames = framesPinned ? (spec.minMatchingFrames ?? 2) : 0;
