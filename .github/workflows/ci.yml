@@ -38,6 +38,25 @@ jobs:
             body=$(curl -sf http://localhost:8080/healthz || true)
             if [ "$body" = '{"ok":true}' ]; then
               echo "healthz OK: $body"
+              runs=$(curl -sf http://localhost:8080/api/runs)
+              if [ "$runs" != "[]" ]; then
+                echo "GET /api/runs expected [], got: $runs"
+                kill %1
+                exit 1
+              fi
+              unknown_run=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/api/runs/999)
+              if [ "$unknown_run" != "404" ]; then
+                echo "GET /api/runs/999 expected 404, got: $unknown_run"
+                kill %1
+                exit 1
+              fi
+              bad_json=$(curl -s -o /dev/null -w '%{http_code}' -X PUT http://localhost:8080/api/runs/1 -H 'content-type: application/json' --data '{bad json')
+              if [ "$bad_json" != "400" ]; then
+                echo "PUT /api/runs/1 with malformed body expected 400, got: $bad_json"
+                kill %1
+                exit 1
+              fi
+              echo "api smoke OK"
               kill %1
               exit 0
             fi
