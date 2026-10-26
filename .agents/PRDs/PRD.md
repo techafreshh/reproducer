@@ -242,6 +242,8 @@ reproducer serve [--port 8080]        # dashboard
 | `GET /api/runs/:id/artifacts/:name` | `repro.py`, `findings.md` |
 | `GET /healthz` | `{ok:true}` |
 
+Status-code contract (pinned, enforced by the acceptance gate): unknown routes → `404`; unknown run id under `/api/runs/:id` → `404`; malformed request bodies (bad JSON) → `400` — never `5xx`.
+
 **GitHub Action** (composite, Node 22, on `issues.labeled` → `needs-repro`)
 
 ```yaml
