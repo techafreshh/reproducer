@@ -1,6 +1,6 @@
 import { pathToFileURL } from "node:url";
 import { parseIssueUrl } from "./issue-url.js";
-import { createRun, openLedger } from "./orchestrator/ledger.js";
+import { insertRun, openLedger } from "./orchestrator/ledger.js";
 
 export interface CliOptions {
   dbPath?: string;
@@ -44,7 +44,7 @@ export function main(argv: string[], options: CliOptions = {}): number {
     const issue = parseIssueUrl(issueUrl);
     const db = openLedger(dbPath);
     try {
-      const id = createRun(db, issue.url);
+      const id = insertRun(db, issue.url);
       console.log(`run ${id} created`);
     } finally {
       db.close();
