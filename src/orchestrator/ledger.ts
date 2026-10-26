@@ -40,6 +40,7 @@ export function openLedger(dbPath: string = DEFAULT_DB_PATH): Ledger {
     CREATE TABLE IF NOT EXISTS symptom_specs (
       run_id INTEGER PRIMARY KEY,
       spec_json TEXT NOT NULL,
+      frozen INTEGER NOT NULL DEFAULT 0,
       frozen_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
     );
   `);
@@ -53,6 +54,37 @@ export function openLedger(dbPath: string = DEFAULT_DB_PATH): Ledger {
       db.exec(`ALTER TABLE runs ADD COLUMN ${column} TEXT`);
     }
   }
+  // Migrate pre-issue-4 ledgers whose `symptom_specs` table lacks the latch
+  // column: NOT NULL DEFAULT 0 keeps existing draft specs unfrozen.
+  const specColumns = new Set(
+    (db.prepare("PRAGMA table_info(symptom_specs)").all() as Array<{ name: string }>).map((col) => col.name),
+  );
+  if (!specColumns.has("frozen")) {
+    db.exec("ALTER TABLE symptom_specs ADD COLUMN frozen INTEGER NOT NULL DEFAULT 0");
+  }
+  // The latch is enforced inside SQLite too: once `frozen = 1`, no update,
+  // insert, or delete may touch the run's spec — even raw SQL that bypasses
+  // the ledger API. The sentinel text is the surfaced error message.
+  db.exec(`
+    CREATE TRIGGER IF NOT EXISTS symptom_specs_frozen_no_update
+    BEFORE UPDATE ON symptom_specs
+    WHEN OLD.frozen = 1
+    BEGIN
+      SELECT RAISE(ABORT, 'spec already frozen');
+    END;
+    CREATE TRIGGER IF NOT EXISTS symptom_specs_frozen_no_insert
+    BEFORE INSERT ON symptom_specs
+    WHEN EXISTS (SELECT 1 FROM symptom_specs WHERE run_id = NEW.run_id AND frozen = 1)
+    BEGIN
+      SELECT RAISE(ABORT, 'spec already frozen');
+    END;
+    CREATE TRIGGER IF NOT EXISTS symptom_specs_frozen_no_delete
+    BEFORE DELETE ON symptom_specs
+    WHEN OLD.frozen = 1
+    BEGIN
+      SELECT RAISE(ABORT, 'spec already frozen');
+    END;
+  `);
   return db;
 }
 
@@ -143,13 +175,40 @@ export function putArtifact(db: Ledger, runId: number, name: string, content: st
   ).run(runId, name, content);
 }
 
-/** Store or replace a run's frozen symptom spec; last write wins. */
+/** Whether the run's symptom spec is latched; false while only a draft exists or no spec row. */
+export function isSymptomSpecFrozen(db: Ledger, runId: number): boolean {
+  const row = db
+    .prepare("SELECT frozen FROM symptom_specs WHERE run_id = ?")
+    .get(runId) as { frozen: number } | undefined;
+  return row?.frozen === 1;
+}
+
+/** Store or replace a run's symptom spec draft; throws once the spec is frozen. */
 export function putSymptomSpec(db: Ledger, runId: number, spec: unknown): void {
+  if (isSymptomSpecFrozen(db, runId)) {
+    throw new Error("spec already frozen");
+  }
   db.prepare(
     `INSERT INTO symptom_specs (run_id, spec_json) VALUES (?, ?)
      ON CONFLICT (run_id) DO UPDATE SET spec_json = excluded.spec_json,
        frozen_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`,
   ).run(runId, JSON.stringify(spec ?? null));
+}
+
+/** Latch a run's symptom spec: refuse if frozen, else upsert with the latch set (issue #4). */
+export function latchSymptomSpec(db: Ledger, runId: number, spec: unknown): void {
+  const latch = db.transaction((): void => {
+    // Re-check under the transaction so a concurrent freeze cannot slip through.
+    if (isSymptomSpecFrozen(db, runId)) {
+      throw new Error("spec already frozen");
+    }
+    db.prepare(
+      `INSERT INTO symptom_specs (run_id, spec_json, frozen) VALUES (?, ?, 1)
+       ON CONFLICT (run_id) DO UPDATE SET spec_json = excluded.spec_json, frozen = 1,
+         frozen_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`,
+    ).run(runId, JSON.stringify(spec ?? null));
+  });
+  latch();
 }
 
 /** Fetch one run as its contract record; null for unknown or non-integer ids. */
