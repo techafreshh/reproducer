@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseIssueUrl } from "./issue-url.ts";
+import { parseIssueUrl } from "./issue-url.js";
 
 describe("parseIssueUrl", () => {
   it("parses the acceptance URL", () => {

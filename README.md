@@ -31,4 +31,4 @@ npx tsx src/cli.ts run https://github.com/octocat/hello-world/issues/1
 
 Each run is persisted to the SQLite ledger at `data/ledger.db` (override with `--db <path>`). Bad URLs exit with code 2 and print `invalid issue url`.
 
-`npm test` runs the unit suite; `npm run typecheck` runs the strict `tsc --noEmit` gate. Copy `.env.example` to `.env` and fill in keys only when wiring live providers.
+`npm test` runs the unit suite; `npm run typecheck` runs the strict `tsc --noEmit` gate; `npm run build` type-checks again and emits `dist/`. Copy `.env.example` to `.env` and fill in keys only when wiring live providers.

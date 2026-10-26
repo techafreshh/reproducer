@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { main } from "./cli.ts";
+import { main } from "./cli.js";
 
 describe("cli main()", () => {
   let dbDir: string;

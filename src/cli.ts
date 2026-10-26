@@ -1,6 +1,6 @@
 import { pathToFileURL } from "node:url";
-import { parseIssueUrl } from "./issue-url.ts";
-import { createRun, openLedger } from "./orchestrator/ledger.ts";
+import { parseIssueUrl } from "./issue-url.js";
+import { createRun, openLedger } from "./orchestrator/ledger.js";
 
 export interface CliOptions {
   dbPath?: string;

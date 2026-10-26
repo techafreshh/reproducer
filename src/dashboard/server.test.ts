@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { app, getPort } from "./server.ts";
+import { app, getPort } from "./server.js";
 
 describe("dashboard app", () => {
   it("serves GET /healthz with 200 and the exact body {\"ok\":true}", async () => {
