@@ -1,7 +1,7 @@
 /**
  * Traceback parser for the deterministic symptom gate: turns the stderr of a
  * failed env_run into the raised exception type and module+function stack
- * frames, with no LLM call.
+ * frames, with no model call.
  *
  * Leniency contract: mangled bug-report text must never throw. Only the last
  * `Traceback (most recent call last)` block is parsed — chained exceptions
