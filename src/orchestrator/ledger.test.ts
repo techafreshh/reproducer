@@ -11,6 +11,8 @@ import {
   getRunSummary,
   getSymptomSpec,
   insertRun,
+  isSymptomSpecFrozen,
+  latchSymptomSpec,
   listRuns,
   openLedger,
   putArtifact,
@@ -165,6 +167,68 @@ describe("ledger symptom specs", () => {
     insertRun(db, "https://github.com/a/b/issues/1");
     expect(getSymptomSpec(db, 1)).toBeNull();
   });
+
+  it("stays overwritable by re-put while unfrozen", () => {
+    insertRun(db, "https://github.com/a/b/issues/1");
+    putSymptomSpec(db, 1, { a: 1 });
+    putSymptomSpec(db, 1, { b: 2 });
+    expect(getSymptomSpec(db, 1)).toEqual({ b: 2 });
+    expect(isSymptomSpecFrozen(db, 1)).toBe(false);
+  });
+
+  it("rejects putSymptomSpec with the exact sentinel once latched", () => {
+    insertRun(db, "https://github.com/a/b/issues/1");
+    latchSymptomSpec(db, 1, { final: true });
+    try {
+      putSymptomSpec(db, 1, { final: false });
+      expect.unreachable();
+    } catch (e) {
+      expect((e as Error).message).toBe("spec already frozen");
+    }
+    expect(getSymptomSpec(db, 1)).toEqual({ final: true });
+  });
+
+  it("latches a draft spec in place", () => {
+    insertRun(db, "https://github.com/a/b/issues/1");
+    putSymptomSpec(db, 1, { draft: 1 });
+    latchSymptomSpec(db, 1, { draft: 2 });
+    expect(isSymptomSpecFrozen(db, 1)).toBe(true);
+    expect(getSymptomSpec(db, 1)).toEqual({ draft: 2 });
+    expect((db.prepare("SELECT COUNT(*) AS c FROM symptom_specs").get() as { c: number }).c).toBe(1);
+  });
+
+  it("refuses raw SQL writes on a latched spec via the SQLite triggers", () => {
+    insertRun(db, "https://github.com/a/b/issues/1");
+    latchSymptomSpec(db, 1, { ok: 1 });
+    try {
+      db.prepare("UPDATE symptom_specs SET spec_json = '{}' WHERE run_id = 1").run();
+      expect.unreachable();
+    } catch (e) {
+      expect((e as Error).message).toBe("spec already frozen");
+    }
+    try {
+      db.prepare("INSERT INTO symptom_specs (run_id, spec_json) VALUES (1, '{}')").run();
+      expect.unreachable();
+    } catch (e) {
+      expect((e as Error).message).toBe("spec already frozen");
+    }
+    try {
+      db.prepare("DELETE FROM symptom_specs WHERE run_id = 1").run();
+      expect.unreachable();
+    } catch (e) {
+      expect((e as Error).message).toBe("spec already frozen");
+    }
+    expect(getSymptomSpec(db, 1)).toEqual({ ok: 1 });
+  });
+
+  it("tracks frozen state per run, false for unknown runs", () => {
+    insertRun(db, "https://github.com/a/b/issues/1");
+    insertRun(db, "https://github.com/a/b/issues/2");
+    latchSymptomSpec(db, 1, { ok: 1 });
+    expect(isSymptomSpecFrozen(db, 1)).toBe(true);
+    expect(isSymptomSpecFrozen(db, 2)).toBe(false);
+    expect(isSymptomSpecFrozen(db, 999)).toBe(false);
+  });
 });
 
 describe("ledger run detail queries", () => {
@@ -260,5 +324,29 @@ describe("openLedger on a file path", () => {
     expect(migrated?.verdict).toBeNull();
     expect(migrated?.budget).toBeNull();
     expect(insertRun(db, "https://github.com/a/b/issues/2")).toBe(2);
+  });
+
+  it("migrates a pre-issue-4 symptom_specs table in place", () => {
+    const dbPath = join(dir, "old-specs.db");
+    const old = new Database(dbPath);
+    old.exec(`
+      CREATE TABLE symptom_specs (
+        run_id INTEGER PRIMARY KEY,
+        spec_json TEXT NOT NULL,
+        frozen_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+      )
+    `);
+    old.prepare("INSERT INTO symptom_specs (run_id, spec_json) VALUES (7, '{\"draft\":true}')").run();
+    old.close();
+
+    db = openLedger(dbPath);
+    const columns = (db.prepare("PRAGMA table_info(symptom_specs)").all() as Array<{ name: string }>).map((c) => c.name);
+    expect(columns).toEqual(expect.arrayContaining(["frozen"]));
+    // Pre-existing drafts migrate unfrozen with their spec intact.
+    expect(getSymptomSpec(db, 7)).toEqual({ draft: true });
+    expect(isSymptomSpecFrozen(db, 7)).toBe(false);
+    // The latch works on the migrated table.
+    latchSymptomSpec(db, 7, { draft: false });
+    expect(isSymptomSpecFrozen(db, 7)).toBe(true);
   });
 });
