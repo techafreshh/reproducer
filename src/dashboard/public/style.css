@@ -1,0 +1,52 @@
+/* Minimal readable styling for the zero-build dashboard. */
+body {
+  font-family: system-ui, -apple-system, sans-serif;
+  margin: 0 auto;
+  max-width: 960px;
+  padding: 16px;
+  color: #1a1a1a;
+}
+table {
+  border-collapse: collapse;
+  width: 100%;
+}
+th, td {
+  border: 1px solid #ccc;
+  padding: 6px 8px;
+  text-align: left;
+  font-size: 14px;
+}
+tbody tr {
+  cursor: pointer;
+}
+tbody tr:hover {
+  background: #f4f4f4;
+}
+.event {
+  border: 1px solid #ddd;
+  border-left: 4px solid #888;
+  padding: 8px;
+  margin: 8px 0;
+}
+.event-kind {
+  font-weight: bold;
+}
+.event-seq {
+  color: #666;
+}
+.event pre {
+  background: #f6f6f6;
+  padding: 8px;
+  overflow-x: auto;
+  white-space: pre-wrap;
+}
+.system-note {
+  border-left-color: #b58900;
+  background: #fffdf0;
+}
+#artifact-view {
+  background: #f6f6f6;
+  padding: 12px;
+  overflow-x: auto;
+  white-space: pre-wrap;
+}

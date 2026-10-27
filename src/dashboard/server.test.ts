@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Hono } from "hono";
+import { runSession } from "../agent/session.js";
 import { freezeSymptomSpec } from "../gate/spec.js";
 import {
   appendEvent,
@@ -189,6 +190,68 @@ describe("dashboard app", () => {
     expect((await app.request("/api/definitely/not/here")).status).toBe(404);
     const res = await app.request("/api/definitely/not/here", { method: "PUT", body: "{bad json" });
     expect(res.status).toBe(404);
+  });
+
+  it("serves the dashboard root with the runs list and the app.js script tag", async () => {
+    const res = await app.request("/");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/html");
+    const body = await res.text();
+    expect(body).toContain("runs list");
+    expect(body).toContain("<script");
+    expect(body).toContain("/static/app.js");
+  });
+
+  it("serves app.js as javascript and style.css as css, 404 otherwise", async () => {
+    const js = await app.request("/static/app.js");
+    expect(js.status).toBe(200);
+    expect(js.headers.get("content-type")).toContain("application/javascript");
+    const css = await app.request("/static/style.css");
+    expect(css.status).toBe(200);
+    expect(css.headers.get("content-type")).toContain("text/css");
+    expect((await app.request("/static/nope.js")).status).toBe(404);
+  });
+
+  it("persists the enriched env_run tool_call payload the timeline consumes", async () => {
+    insertRun(db, "https://github.com/octocat/hello-world/issues/1");
+    freezeSymptomSpec(1, FROZEN_SPEC, db);
+    await runSession(
+      1,
+      [{ tool: "env_run", cmd: "python repro.py", stdout: "hello", stderr: "boom" }],
+      db,
+    );
+    const res = await app.request("/api/runs/1/events");
+    expect(res.status).toBe(200);
+    const events = (await res.json()) as Array<Record<string, unknown>>;
+    expect(events.length).toBeGreaterThan(0);
+    for (const event of events) {
+      expect(event.kind).toBeDefined();
+      expect(event.seq).toBeDefined();
+    }
+    const toolCall = events.find((event) => event.kind === "tool_call");
+    expect(toolCall).toBeDefined();
+    const payload = JSON.parse(toolCall?.payload_json as string) as Record<string, unknown>;
+    expect(payload.tool).toBe("env_run");
+    expect(payload.cmd).toBe("python repro.py");
+    expect(payload.stdout).toBe("hello");
+    expect(payload.stderr).toBe("boom");
+    expect(typeof payload.verdict).toBe("string");
+    expect(typeof toolCall?.seq).toBe("number");
+  });
+
+  it("round-trips sanitize_flag events with their flag text for system notes", async () => {
+    insertRun(db, "https://github.com/octocat/hello-world/issues/1");
+    appendEvent(db, 1, "note", { step: "triage" });
+    appendEvent(db, 1, "sanitize_flag", { flags: ["prompt:ignore-previous"], source: "issue" });
+    appendEvent(db, 1, "gate", { verdict: "inconclusive" });
+    const res = await app.request("/api/runs/1/events");
+    expect(res.status).toBe(200);
+    const events = (await res.json()) as Array<Record<string, unknown>>;
+    expect(events).toHaveLength(3);
+    const flagged = events.find((event) => event.kind === "sanitize_flag");
+    expect(flagged).toBeDefined();
+    expect(typeof flagged?.seq).toBe("number");
+    expect(flagged?.payload_json as string).toContain("prompt:ignore-previous");
   });
 });
 

@@ -1,4 +1,7 @@
 import { serve } from "@hono/node-server";
+import { existsSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Hono, type MiddlewareHandler } from "hono";
 import {
@@ -29,6 +32,50 @@ const requireJsonBody: MiddlewareHandler = async (c, next) => {
   await next();
 };
 
+/** Allowlisted dashboard static files with their exact content types. */
+const STATIC_FILES: Record<string, string> = {
+  "app.js": "application/javascript; charset=utf-8",
+  "style.css": "text/css; charset=utf-8",
+  "index.html": "text/html; charset=utf-8",
+};
+
+/**
+ * Resolve the dashboard public dir: relative to this module file so both
+ * `tsx src/dashboard/server.ts` and compiled `dist/dashboard/server.js`
+ * find it (compiled output falls back to the `src` tree when `dist` has no
+ * copied assets). Never throws — missing dirs read as absent files (404).
+ */
+function resolvePublicDir(): string {
+  const candidates: string[] = [];
+  try {
+    const here = dirname(fileURLToPath(import.meta.url));
+    candidates.push(join(here, "public"));
+  } catch {
+    // ignore: fall through to cwd-relative candidates
+  }
+  candidates.push(join(process.cwd(), "src", "dashboard", "public"));
+  for (const dir of candidates) {
+    try {
+      if (existsSync(dir)) return dir;
+    } catch {
+      continue;
+    }
+  }
+  return candidates[0] as string;
+}
+
+/** Read a public file by name; null when allowlisted-but-absent or not allowlisted. */
+function readPublicFile(name: string): { content: string; contentType: string } | null {
+  const contentType = STATIC_FILES[name];
+  if (contentType === undefined) return null;
+  try {
+    const content = readFileSync(join(resolvePublicDir(), name), "utf-8");
+    return { content, contentType };
+  } catch {
+    return null;
+  }
+}
+
 /** Build the dashboard app over an open ledger (routes stay read-only). */
 export function createApp(db: Ledger): Hono {
   const app = new Hono();
@@ -39,6 +86,18 @@ export function createApp(db: Ledger): Hono {
   app.use("/api/runs/:id/*", requireJsonBody);
 
   app.get("/healthz", (c) => c.json({ ok: true }));
+
+  app.get("/", (c) => {
+    const file = readPublicFile("index.html");
+    if (file === null) return c.text("not found", 404);
+    return c.body(file.content, 200, { "content-type": file.contentType });
+  });
+
+  app.get("/static/:name", (c) => {
+    const file = readPublicFile(c.req.param("name"));
+    if (file === null) return c.text("not found", 404);
+    return c.body(file.content, 200, { "content-type": file.contentType });
+  });
 
   app.get("/api/runs", (c) => c.json(listRuns(db)));
 

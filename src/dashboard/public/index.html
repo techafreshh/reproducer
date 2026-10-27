@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Reproducer dashboard</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header>
+    <h1>Reproducer dashboard</h1>
+  </header>
+  <main>
+    <section aria-label="runs">
+      <h2>runs list</h2>
+      <table id="runs">
+        <thead>
+          <tr>
+            <th>id</th>
+            <th>issue_url</th>
+            <th>status</th>
+            <th>verdict</th>
+            <th>budget burn</th>
+          </tr>
+        </thead>
+        <tbody id="runs-body">
+          <tr><td colspan="5">loading…</td></tr>
+        </tbody>
+      </table>
+    </section>
+    <section aria-label="run detail">
+      <h2>run detail</h2>
+      <div id="run-meta"><p>Select a run to inspect its trace.</p></div>
+      <h3>tool-call trace</h3>
+      <div id="timeline"><p>No run selected.</p></div>
+      <h3>artifacts</h3>
+      <div id="artifacts"><p>No run selected.</p></div>
+      <pre id="artifact-view" hidden></pre>
+    </section>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>
