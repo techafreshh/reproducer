@@ -1,0 +1,14 @@
+{
+  "results": [
+    {
+      "title": "sleepywait sleepwait hangs",
+      "url": "https://example.com/docs/sleepywait-sleep",
+      "content": "sleepwait() sleeps past any reasonable deadline on sleepywait 0.3.0 and never returns."
+    },
+    {
+      "title": "demo/sleepywait issue 3",
+      "url": "https://github.com/demo/sleepywait/issues/3",
+      "content": "sleepwait() with the default delay hangs; only a timeout wrapper regains control."
+    }
+  ]
+}
