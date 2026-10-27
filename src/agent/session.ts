@@ -634,11 +634,21 @@ async function dispatchSession(
       agent.emit("llm_turn", { hypothesis: currentHypothesis, tool: "env_run" });
       const merged = nestedInput(step);
       const cmd = stringField(merged, ["cmd", "command", "script", "code"]) ?? "";
-      agent.emit("tool_call", { tool: "env_run", hypothesis: currentHypothesis, cmd });
-      recordEnvRun(state, currentHypothesis);
       const envResult = toEnvRunResult(step);
       const graded = grade(runId, envResult, db);
       lastVerdict = graded.verdict;
+      agent.emit("tool_call", {
+        tool: "env_run",
+        hypothesis: currentHypothesis,
+        cmd,
+        stdout: envResult.stdout ?? "",
+        stderr: envResult.stderr ?? "",
+        exitCode: envResult.exitCode,
+        timedOut: envResult.timedOut === true,
+        verdict: graded.verdict,
+        reason: graded.detail.reason,
+      });
+      recordEnvRun(state, currentHypothesis);
       agent.emit("gate", {
         verdict: graded.verdict,
         reason: graded.detail.reason,
