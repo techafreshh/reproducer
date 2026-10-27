@@ -44,4 +44,65 @@ describe("cli main()", () => {
     expect(main([])).toBe(2);
     expect(main(["run", "--db", dbPath])).toBe(2);
   });
+
+  it("runs the scripted demo fixture end-to-end with no API keys", () => {
+    const scriptedDb = join(dbDir, "scripted-ledger.db");
+    const savedEnv = { ...process.env };
+    for (const key of ["NEBIUS_API_KEY", "TAVILY_API_KEY", "TAVILIS_API_KEY", "GITHUB_TOKEN", "MODEL_REASON"]) {
+      delete process.env[key];
+    }
+    try {
+      const code = main([
+        "run",
+        "https://github.com/demo/ducklings/issues/1",
+        "--scripted",
+        "fixtures/demo-1",
+        "--db",
+        scriptedDb,
+      ]);
+      expect(code).toBe(0);
+      const output = log.mock.calls.map((args) => args.join(" ")).join("\n");
+      expect(output).toContain("verdict: reproduced");
+    } finally {
+      for (const key of Object.keys(process.env)) {
+        if (!(key in savedEnv)) delete process.env[key];
+      }
+      Object.assign(process.env, savedEnv);
+    }
+    const db = new Database(scriptedDb, { readonly: true });
+    const rows = db.prepare("SELECT status, verdict FROM runs WHERE id = 1").all() as Array<{
+      status: string;
+      verdict: string | null;
+    }>;
+    db.close();
+    expect(rows).toEqual([{ status: "reproduced", verdict: "reproduced" }]);
+  });
+
+  it("accepts bare --scripted and --scripted=<dir> forms", () => {
+    const bareDb = join(dbDir, "bare-ledger.db");
+    expect(main(["run", "https://github.com/demo/ducklings/issues/1", "--scripted", "--db", bareDb])).toBe(0);
+    expect(log.mock.calls.map((args) => args.join(" ")).join("\n")).toContain("verdict: reproduced");
+
+    log.mockClear();
+    const eqDb = join(dbDir, "eq-ledger.db");
+    expect(
+      main(["run", "https://github.com/demo/ducklings/issues/1", "--scripted=fixtures/demo-1", "--db", eqDb]),
+    ).toBe(0);
+    expect(log.mock.calls.map((args) => args.join(" ")).join("\n")).toContain("verdict: reproduced");
+  });
+
+  it("exits 2 with usage on stdout for a missing fixture dir", () => {
+    const code = main([
+      "run",
+      "https://github.com/demo/ducklings/issues/1",
+      "--scripted",
+      join(dbDir, "no-such-fixture"),
+      "--db",
+      join(dbDir, "missing-ledger.db"),
+    ]);
+    expect(code).toBe(2);
+    const output = log.mock.calls.map((args) => args.join(" ")).join("\n");
+    expect(output).toContain("missing fixture");
+    expect(output).toContain("usage:");
+  });
 });

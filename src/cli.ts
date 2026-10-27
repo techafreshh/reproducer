@@ -1,5 +1,6 @@
 import { pathToFileURL } from "node:url";
 import { parseIssueUrl } from "./issue-url.js";
+import { DEMO_FIXTURE_DIR, runScriptedDemo } from "./orchestrator/demo-run.js";
 import { insertRun, openLedger } from "./orchestrator/ledger.js";
 
 export interface CliOptions {
@@ -16,6 +17,7 @@ const USAGE = "usage: reproducer run <issue-url> [--db <path>]";
  */
 export function main(argv: string[], options: CliOptions = {}): number {
   let dbPath = options.dbPath;
+  let scriptedDir: string | undefined;
   const positionals: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -29,6 +31,19 @@ export function main(argv: string[], options: CliOptions = {}): number {
       dbPath = value;
     } else if (arg.startsWith("--db=")) {
       dbPath = arg.slice("--db=".length);
+    } else if (arg === "--scripted") {
+      // Bare `--scripted` means the default fixture dir; a following
+      // non-flag token is the fixture dir (`--scripted <dir>`).
+      const next = argv[i + 1];
+      if (next !== undefined && !next.startsWith("-")) {
+        scriptedDir = next;
+        i++;
+      } else {
+        scriptedDir = DEMO_FIXTURE_DIR;
+      }
+    } else if (arg.startsWith("--scripted=")) {
+      const value = arg.slice("--scripted=".length);
+      scriptedDir = value === "" ? DEMO_FIXTURE_DIR : value;
     } else {
       positionals.push(arg);
     }
@@ -38,6 +53,21 @@ export function main(argv: string[], options: CliOptions = {}): number {
   if (subcommand !== "run" || !issueUrl) {
     console.log(USAGE);
     return 2;
+  }
+
+  // Scripted validation path: the whole engine on one canned fixture.
+  // Any gate verdict (even non-`reproduced`) still exits 0; only bad URLs
+  // and unreadable fixtures exit 2 with usage on stdout.
+  if (scriptedDir !== undefined) {
+    try {
+      const { verdict } = runScriptedDemo(issueUrl, scriptedDir, dbPath);
+      console.log(`verdict: ${verdict}`);
+      return 0;
+    } catch (error) {
+      console.log(error instanceof Error ? error.message : String(error));
+      console.log(USAGE);
+      return 2;
+    }
   }
 
   try {
