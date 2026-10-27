@@ -1,4 +1,4 @@
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
@@ -104,5 +104,116 @@ describe("cli main()", () => {
     const output = log.mock.calls.map((args) => args.join(" ")).join("\n");
     expect(output).toContain("missing fixture");
     expect(output).toContain("usage:");
+  });
+});
+
+describe("cli replay mode", () => {
+  let dbDir: string;
+  let log: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    dbDir = mkdtempSync(join(tmpdir(), "reproducer-cli-replay-"));
+    log = vi.spyOn(console, "log").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    log.mockRestore();
+    vi.unstubAllEnvs();
+  });
+
+  function stdout(): string {
+    return log.mock.calls.map((args) => args.join(" ")).join("\n");
+  }
+
+  function runStatus(dbPath: string, id: number): string | null {
+    const db = new Database(dbPath, { readonly: true });
+    try {
+      const rows = db.prepare("SELECT status FROM runs WHERE id = ?").all(id) as Array<{ status: string }>;
+      return rows[0]?.status ?? null;
+    } finally {
+      db.close();
+    }
+  }
+
+  it("replays demo-1 to reproduced with no API keys", async () => {
+    const dbPath = join(dbDir, "replay-ledger.db");
+    const code = await main([
+      "run",
+      "https://github.com/demo/ducklings/issues/1",
+      "--replay",
+      "fixtures/demo-1",
+      "--db",
+      dbPath,
+    ]);
+    expect(code).toBe(0);
+    expect(stdout()).toContain("verdict: reproduced");
+    expect(runStatus(dbPath, 1)).toBe("reproduced");
+  });
+
+  it("accepts bare --replay and --replay=<dir> forms", async () => {
+    const bareDb = join(dbDir, "bare-ledger.db");
+    expect(await main(["run", "https://github.com/demo/ducklings/issues/1", "--replay", "--db", bareDb])).toBe(0);
+    expect(stdout()).toContain("verdict: reproduced");
+
+    log.mockClear();
+    const eqDb = join(dbDir, "eq-ledger.db");
+    expect(
+      await main(["run", "https://github.com/demo/ducklings/issues/1", "--replay=fixtures/demo-1", "--db", eqDb]),
+    ).toBe(0);
+    expect(stdout()).toContain("verdict: reproduced");
+  });
+
+  it("replays demo-2 and demo-3 to their expected.json statuses", async () => {
+    for (const bundle of ["demo-2", "demo-3"]) {
+      const expected = JSON.parse(
+        readFileSync(join("fixtures", bundle, "expected.json"), "utf8"),
+      ) as { url: string; expectedStatus: string };
+      const dbPath = join(dbDir, `${bundle}-ledger.db`);
+      log.mockClear();
+      const code = await main(["run", expected.url, "--replay", join("fixtures", bundle), "--db", dbPath]);
+      expect(code).toBe(0);
+      expect(stdout()).toContain(`verdict: ${expected.expectedStatus}`);
+      expect(runStatus(dbPath, 1)).toBe(expected.expectedStatus);
+    }
+  });
+
+  it("honors REPLAY=1 with no --replay flag", async () => {
+    vi.stubEnv("REPLAY", "1");
+    const dbPath = join(dbDir, "env-ledger.db");
+    const code = await main(["run", "https://github.com/demo/ducklings/issues/1", "--db", dbPath]);
+    expect(code).toBe(0);
+    expect(stdout()).toContain("verdict: reproduced");
+    expect(runStatus(dbPath, 1)).toBe("reproduced");
+  });
+
+  it("prefers an explicit --replay flag over the REPLAY env toggle", async () => {
+    vi.stubEnv("REPLAY", "1");
+    const dbPath = join(dbDir, "flag-wins-ledger.db");
+    const code = await main([
+      "run",
+      "https://github.com/demo/calcbox/issues/2",
+      "--replay",
+      "fixtures/demo-2",
+      "--db",
+      dbPath,
+    ]);
+    expect(code).toBe(0);
+    expect(stdout()).toContain("verdict: reproduced");
+    expect(runStatus(dbPath, 1)).toBe("reproduced");
+  });
+
+  it("exits 2 with `missing fixture: issue.json` for a fixture dir without one", async () => {
+    const emptyDir = mkdtempSync(join(tmpdir(), "reproducer-replay-noissue-"));
+    const code = await main([
+      "run",
+      "https://github.com/demo/ducklings/issues/1",
+      "--replay",
+      emptyDir,
+      "--db",
+      join(dbDir, "nofixture-ledger.db"),
+    ]);
+    expect(code).toBe(2);
+    expect(stdout()).toContain("missing fixture: issue.json");
+    expect(stdout()).toContain("usage:");
   });
 });
