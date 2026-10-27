@@ -17,6 +17,7 @@ import {
   resolveFixtureDir,
 } from "./fixtures.js";
 import { enrichEnvRuns, runReplay } from "./run.js";
+import { executePythonScript } from "./exec.js";
 
 const BUNDLES = ["demo-1", "demo-2", "demo-3"] as const;
 
@@ -122,6 +123,29 @@ describe("runReplay per bundle", () => {
         const findings = getArtifact(db, 1, "findings.md");
         expect(findings?.content).toContain(expectedStatus);
         expect(findings?.content).toContain("## Research");
+        // The stored artifact must stand alone: execute it with the shared
+        // python executor and prove the pinned symptom behavior.
+        const executed = executePythonScript(repro?.content ?? "", bundle === "demo-3" ? 2000 : 15000);
+        if (bundle === "demo-1") {
+          expect(executed.exitCode).not.toBe(0);
+          expect(executed.stderr).toContain("ValueError");
+        } else if (bundle === "demo-2") {
+          expect(executed.exitCode).not.toBe(0);
+          expect(executed.stderr).toContain("AssertionError");
+        } else {
+          expect(executed.timedOut).toBe(true);
+        }
+        // Citation-backed report with a two-row version boundary.
+        expect(findings?.content).toMatch(/https:\/\//);
+        const bisectSection = (findings?.content ?? "").split("## Bisect")[1] ?? "";
+        const dataRows = bisectSection
+          .split("\n")
+          .map((line) => line.trim())
+          .filter(
+            (line) =>
+              /^\|[^|]+\|[^|]+\|$/.test(line) && !line.includes("---") && !/version/i.test(line),
+          );
+        expect(dataRows.length).toBeGreaterThanOrEqual(2);
       } finally {
         db.close();
       }
