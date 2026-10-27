@@ -12,7 +12,7 @@
  */
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { githubGetIssue, mapGitHubIssue, type FetchFn } from "../agent/tools/github.js";
 import { mapTavilyExtract, mapTavilySearchResults } from "../agent/tools/tavily.js";
 import { tavilyExtract, tavilySearch } from "../agent/tools/tavily.js";
@@ -33,6 +33,31 @@ import type {
   ToolClient,
 } from "../agent/tools/types.js";
 
+/** Default fixture directory for a bare `--replay` flag or a bare `REPLAY=1` toggle. */
+export const DEFAULT_REPLAY_DIR = "fixtures/demo-1";
+
+/** `REPLAY=1` (also `true`/`yes`, case-insensitive) opts into replay mode. */
+export function isReplayEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  const raw = env.REPLAY;
+  if (raw === undefined) return false;
+  const value = raw.trim().toLowerCase();
+  return value === "1" || value === "true" || value === "yes";
+}
+
+/**
+ * Resolve the replay fixture directory: an explicit `--replay <dir>` flag
+ * wins; otherwise a truthy `REPLAY` env falls back to the default bundle.
+ * Returns `undefined` when replay mode is off entirely.
+ */
+export function resolveFixtureDir(
+  cliDir?: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  if (cliDir !== undefined) return cliDir;
+  if (isReplayEnabled(env)) return DEFAULT_REPLAY_DIR;
+  return undefined;
+}
+
 /** Lowercase hex `sha256` of the raw string; no salting or normalization. */
 export function fixtureHash(value: string): string {
   return createHash("sha256").update(value).digest("hex");
@@ -45,6 +70,36 @@ function readJsonFile(path: string): unknown {
 function firstExisting(candidates: string[]): string | null {
   for (const candidate of candidates) {
     if (existsSync(candidate)) return candidate;
+  }
+  return null;
+}
+
+/**
+ * Pull result payloads out of the legacy `tavily.json` shape
+ * (`{searches: [{query, results}]}` or `{results}` or a bare array): the
+ * query-matching entry when present, else the first entry. Returns `null`
+ * when the legacy file carries nothing usable so the caller fails loudly.
+ */
+function legacySearchResults(canned: unknown, query: string): unknown | null {
+  if (Array.isArray(canned)) return canned;
+  if (typeof canned !== "object" || canned === null) return null;
+  const root = canned as Record<string, unknown>;
+  if (Array.isArray(root.results)) return root.results;
+  const searches = root.searches;
+  if (!Array.isArray(searches)) return null;
+  for (const entry of searches) {
+    if (typeof entry === "object" && entry !== null) {
+      const record = entry as Record<string, unknown>;
+      if (record.query === query && Array.isArray(record.results)) return record.results;
+    }
+  }
+  const first: unknown = searches[0];
+  if (
+    typeof first === "object" &&
+    first !== null &&
+    Array.isArray((first as Record<string, unknown>).results)
+  ) {
+    return (first as Record<string, unknown>).results;
   }
   return null;
 }
@@ -119,7 +174,7 @@ export class FixturesClient implements ToolClient {
     parseIssueUrl(url);
     const found = firstExisting(this.issueCandidates());
     if (found === null) {
-      throw new Error(`missing fixture: ${this.issueCandidates()[0]}`);
+      throw new Error(`missing fixture: ${basename(this.issueCandidates()[0] ?? "issue.json")}`);
     }
     const canned = readJsonFile(found) as Record<string, unknown>;
     const comments = toCommentPayloads(canned.comments);
@@ -127,21 +182,30 @@ export class FixturesClient implements ToolClient {
   }
 
   async tavilySearch(query: string, opts: TavilySearchOptions = {}): Promise<TavilySearchResponse> {
+    const hashed = this.tavilyCandidates(query)[0] ?? join(this.baseDir, "tavily", `${fixtureHash(query)}.json`);
     const found = firstExisting(this.tavilyCandidates(query));
-    if (found === null) {
-      throw new Error(`missing fixture: ${this.tavilyCandidates(query)[0]}`);
+    if (found !== null) {
+      const canned = readJsonFile(found) as unknown;
+      const rawResults = Array.isArray(canned)
+        ? canned
+        : (canned as { results?: unknown }).results ?? [];
+      return mapTavilySearchResults(rawResults, opts.maxResults);
     }
-    const canned = readJsonFile(found) as unknown;
-    const rawResults = Array.isArray(canned)
-      ? canned
-      : (canned as { results?: unknown }).results ?? [];
-    return mapTavilySearchResults(rawResults, opts.maxResults);
+    // Legacy fallback: the pre-hash `tavily.json` bundle still replays.
+    const legacy = join(this.baseDir, "tavily.json");
+    if (existsSync(legacy)) {
+      const fallback = legacySearchResults(readJsonFile(legacy), query);
+      if (fallback !== null) {
+        return mapTavilySearchResults(fallback, opts.maxResults);
+      }
+    }
+    throw new Error(`missing fixture: ${basename(hashed)}`);
   }
 
   async tavilyExtract(url: string): Promise<TavilyExtractResponse> {
     const found = firstExisting(this.extractCandidates(url));
     if (found === null) {
-      throw new Error(`missing fixture: ${this.extractCandidates(url)[0]}`);
+      throw new Error(`missing fixture: ${basename(this.extractCandidates(url)[0] ?? "tavily-extract")}`);
     }
     return mapTavilyExtract(readJsonFile(found), url);
   }

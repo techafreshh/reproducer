@@ -1,0 +1,1 @@
+{"errorStrings":["sleepwait() never returns; the call hangs indefinitely"],"expectedOutput":null,"frames":[],"library":"sleepywait","symptomClass":"hang","trigger":"call sleepwait()","versions":["0.3.0"]}

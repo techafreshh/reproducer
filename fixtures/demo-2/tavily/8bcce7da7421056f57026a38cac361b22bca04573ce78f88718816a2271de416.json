@@ -1,0 +1,14 @@
+{
+  "results": [
+    {
+      "title": "calcbox add off by one",
+      "url": "https://example.com/docs/calcbox-add",
+      "content": "add(a, b) returns a + b + 1 in calcbox 1.2.0; every printed sum is one too high while sub() is unaffected."
+    },
+    {
+      "title": "demo/calcbox issue 2",
+      "url": "https://github.com/demo/calcbox/issues/2",
+      "content": "add(2, 3) prints 6 instead of 5 on calcbox 1.2.0; add(0, 0) gives 1."
+    }
+  ]
+}
