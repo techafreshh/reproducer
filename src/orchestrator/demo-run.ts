@@ -10,10 +10,15 @@
  * the checked-in minimal script, and submits `repro.py` + `findings.md`.
  * No model, no network, no env secrets.
  */
-import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
+import {
+  countNonEmptyLines,
+  executePythonScript,
+  MAX_ARTIFACT_LINES,
+  MAX_MINIMAL_NON_EMPTY_LINES,
+  stripCommentsAndBlanks,
+} from "../replay/exec.js";
 import { gradeAgainstSpec, type EnvRunResult, type GateVerdict } from "../gate/gate.js";
 import { freezeSymptomSpec, validateSymptomSpec, type SymptomSpec } from "../gate/spec.js";
 import { runBisect, type BisectRow } from "../agent/tools/bisect.js";
@@ -35,14 +40,8 @@ import {
 /** Default fixture directory for a bare `--scripted` flag (relative to cwd). */
 export const DEMO_FIXTURE_DIR = "fixtures/demo-1";
 
-/** Hard timeout for each graded python execution. */
-const PYTHON_TIMEOUT_MS = 60000;
-
-/** Submitted `repro.py` must stay within this many total lines. */
-const MAX_ARTIFACT_LINES = 60;
-
-/** The shrink target: minimal repro must fit this many non-empty lines. */
-const MAX_MINIMAL_NON_EMPTY_LINES = 20;
+/** Shared python executor; re-exported so existing importers keep working. */
+export { executePythonScript };
 
 export interface ScriptedDemoResult {
   runId: number;
@@ -101,27 +100,6 @@ function parseDemoPlan(raw: unknown, dir: string): DemoPlan {
     }
   }
   return { symptomSpec, reproCandidate, minimalRepro, findingsMd, bumpers: steps };
-}
-
-/** Lines carrying code or prose; blank lines never count toward the shrink budget. */
-function countNonEmptyLines(script: string): number {
-  let count = 0;
-  for (const line of script.split("\n")) {
-    if (line.trim().length > 0) count++;
-  }
-  return count;
-}
-
-/** Drop blank lines and full-line `#` comments for the shrink fallback. */
-function stripCommentsAndBlanks(script: string): string {
-  return script
-    .split("\n")
-    .filter((line) => {
-      const trimmed = line.trim();
-      return trimmed.length > 0 && !trimmed.startsWith("#");
-    })
-    .join("\n")
-    .concat("\n");
 }
 
 /** Demo-1 research verdict: hatch() defaulting to brood(-1) is a caller-side misuse. */
@@ -191,35 +169,6 @@ function bisectRowsFor(spec: SymptomSpec, result: EnvRunResult): BisectRow[] {
       verdict: graded.verdict,
       reason: graded.detail.reason,
     }));
-  }
-}
-
-/**
- * Run a repro script with the real `python3`, graded exactly like the
- * delivered artifact: written to a temp file named `repro.py` so the parsed
- * traceback frames carry the `repro.py` module basename the spec pins.
- */
-export function executePythonScript(script: string): EnvRunResult {
-  const dir = mkdtempSync(join(tmpdir(), "reproducer-demo-"));
-  try {
-    const file = join(dir, "repro.py");
-    writeFileSync(file, script);
-    const result = spawnSync("python3", [file], {
-      encoding: "utf-8",
-      timeout: PYTHON_TIMEOUT_MS,
-      killSignal: "SIGKILL",
-    });
-    const code = (result.error as { code?: unknown } | undefined)?.code;
-    const stdout = typeof result.stdout === "string" ? result.stdout : "";
-    const stderr = typeof result.stderr === "string" ? result.stderr : "";
-    return {
-      exitCode: typeof result.status === "number" ? result.status : -1,
-      stdout,
-      stderr,
-      timedOut: code === "ETIMEDOUT" || result.signal === "SIGKILL",
-    };
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
   }
 }
 
