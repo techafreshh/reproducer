@@ -1,1 +1,1 @@
-{"errorStrings":["add(2, 3) returned 6 instead of 5"],"expectedOutput":{"result":"add(2, 3) = 6"},"frames":[],"library":"calcbox","symptomClass":"wrong-output","trigger":"call add(2, 3)","versions":["1.2.0"]}
+{"errorStrings":["add(2, 3) returned 6 instead of 5"],"expectedOutput":{"result":"add(2, 3) = 6"},"frames":[],"library":"calcbox","symptomClass":"wrong-output","trigger":"call add(2, 3)","versions":["1.1.0","1.2.0"]}

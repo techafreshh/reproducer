@@ -37,6 +37,9 @@ jobs:
         env:
           PYPI_LIVE: "0"
 
+      - name: Compose config
+        run: docker compose config || docker-compose config
+
       - name: Vitest gate suites
         run: bunx vitest run src/gate src/sanitize
 

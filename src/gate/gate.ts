@@ -12,8 +12,9 @@
  *   at least `minMatchingFrames` parsed frames must land on the spec's pinned
  *   module+function pairs (vacuous when `frames` is empty).
  * - `wrong-output`: every `expectedOutput` entry (the symptom text a buggy
- *   run emits) must appear in stdout after whitespace normalization; entries
- *   render as themselves or as JSON. Never fabricates output: a spec without
+ *   run emits) must appear in stdout after whitespace normalization; output
+ *   match wins over exit code, so a repro that prints the symptom and then
+ *   raises still grades `reproduced`. Never fabricates output: a spec without
  *   `expectedOutput` grades `inconclusive`.
  * - `hang`: `timedOut` is the verdict — a genuine hang that logged import
  *   noise still hung.
@@ -180,13 +181,6 @@ export function gradeAgainstSpec(spec: SymptomSpec, envResult: EnvRunResult): Ga
         detail: { ...detail, reason: "trigger never reached: import/module-not-found failure" },
       };
     }
-    // A crash short-circuits the symptom output; the agent repairs the env.
-    if (envResult.exitCode !== 0) {
-      return {
-        verdict: "inconclusive",
-        detail: { ...detail, reason: `trigger never reached: command exited ${envResult.exitCode}` },
-      };
-    }
     if (spec.expectedOutput === null || Object.keys(spec.expectedOutput).length === 0) {
       return {
         verdict: "inconclusive",
@@ -199,8 +193,28 @@ export function gradeAgainstSpec(spec: SymptomSpec, envResult: EnvRunResult): Ga
     for (const [, value] of entries) {
       if (normalizedStdout.includes(normalizeWhitespace(renderOutputEntry(value)))) matched++;
     }
+    // Output match wins over exit code: a repro that prints the pinned
+    // symptom and then raises still reproduced the bug.
+    if (matched === entries.length) {
+      return {
+        verdict: "reproduced",
+        detail: {
+          ...detail,
+          reason: `matched ${matched}/${entries.length} expected symptom entries in stdout`,
+          outputMatched: matched,
+          outputRequired: entries.length,
+        },
+      };
+    }
+    // A crash short-circuits the symptom output; the agent repairs the env.
+    if (envResult.exitCode !== 0) {
+      return {
+        verdict: "inconclusive",
+        detail: { ...detail, reason: `trigger never reached: command exited ${envResult.exitCode}` },
+      };
+    }
     return {
-      verdict: matched === entries.length ? "reproduced" : "not-reproduced",
+      verdict: "not-reproduced",
       detail: {
         ...detail,
         reason: `matched ${matched}/${entries.length} expected symptom entries in stdout`,

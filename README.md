@@ -8,25 +8,67 @@ Reproducer takes a GitHub issue URL and returns evidence: it triages the report 
 
 ## Setup
 
-Fresh clone to working demo in eight steps. The replay demo needs no API keys.
+Fresh clone to a green acceptance pass in nine steps. The replay demos need
+no API keys and no network.
 
 1. Clone the repository and move into it.
 2. Install dependencies with `bun install` (requires Node 22 or newer and bun 1.4.x).
 3. Run the strict type gate with `npm run typecheck`.
-4. Start the service and dashboard with `npm start` (listens on `PORT`, default 8080).
-5. Confirm the service is up with `curl http://localhost:8080/healthz` (expect 200 and `{"ok":true}`).
-6. Run the bundled no-keys replay demo against the `fixtures/demo-1` fixture.
-7. Confirm the terminal reports a gate verdict and the run appears in the dashboard run list.
-8. Find the persisted run in the SQLite ledger at `data/ledger.db` (override with `--db <path>`).
+4. Run the three keyless replay demos — each exits 0 and ends with its
+   `expected.json` status (`reproduced`). The URLs below are the `url` fields
+   of `fixtures/demo-N/expected.json`; runs persist to the SQLite ledger at
+   `data/ledger.db` (override with `--db <path>`).
+
+   ```sh
+   ./bin/reproducer.js run https://github.com/demo/ducklings/issues/1 --replay fixtures/demo-1
+   ./bin/reproducer.js run https://github.com/demo/calcbox/issues/2 --replay fixtures/demo-2
+   ./bin/reproducer.js run https://github.com/demo/sleepywait/issues/3 --replay fixtures/demo-3
+   ```
+
+5. Start the service and dashboard with `npm start` (listens on `PORT`, default 8080).
+6. Confirm the service is up with `curl http://localhost:8080/healthz` (expect 200 and `{"ok":true}`).
+7. Confirm the dashboard sees exactly the three runs, and that an unknown run 404s:
+
+   ```sh
+   curl http://localhost:8080/api/runs
+   curl -o /dev/null -w '%{http_code}\n' http://localhost:8080/api/runs/999
+   ```
+
+   Each run's trace renders at `/runs/:id` in the dashboard (runs list +
+   per-run tool-call timeline + artifact viewer), backed by
+   `GET /api/runs/:id/events` and `GET /api/runs/:id/artifacts/:name`.
+8. Fetch each run's standalone `repro.py` and execute it: demo-1 exits nonzero
+   with `ValueError` in stderr, demo-2 exits nonzero with `AssertionError` in
+   stderr, demo-3 hangs by design so bound it with `timeout`:
+
+   ```sh
+   curl -sf http://localhost:8080/api/runs/1/artifacts/repro.py -o /tmp/repro-1.py
+   python3 /tmp/repro-1.py
+   curl -sf http://localhost:8080/api/runs/2/artifacts/repro.py -o /tmp/repro-2.py
+   python3 /tmp/repro-2.py
+   curl -sf http://localhost:8080/api/runs/3/artifacts/repro.py -o /tmp/repro-3.py
+   timeout 5 python3 /tmp/repro-3.py; echo "exit: $?"
+   ```
+
+   Each run's `findings.md` (`GET /api/runs/:id/artifacts/findings.md`)
+   carries `https://` research citations and a two-row `## Bisect` table
+   (`lastGood` / `firstBad`).
+9. Validate the compose surface, then bring the stack up:
+
+   ```sh
+   docker compose config
+   docker compose up --build
+   ```
 
 ```sh
 git clone https://github.com/techafreshh/reproducer.git
 cd reproducer
 bun install
 npm run typecheck
+./bin/reproducer.js run https://github.com/demo/ducklings/issues/1 --replay fixtures/demo-1
 npm start &
 curl http://localhost:8080/healthz
-npx tsx src/cli.ts run https://github.com/octocat/hello-world/issues/1 --replay
+curl http://localhost:8080/api/runs
 ```
 
 `npm test` runs the unit suite and `npm run build` emits `dist/`. Live providers stay off unless you opt in (see Security).
