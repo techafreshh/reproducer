@@ -1,0 +1,8 @@
+{
+  "reproducer": {
+    "post": {
+      "allowlist": ["techafreshh/reproducer"]
+    },
+    "dashboardBase": "http://localhost:8080"
+  }
+}

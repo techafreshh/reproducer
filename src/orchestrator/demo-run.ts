@@ -31,11 +31,14 @@ import {
 import { parseIssueUrl } from "../issue-url.js";
 import {
   appendEvent,
+  getArtifact,
   insertRun,
   openLedger,
   putArtifact,
   setRunOutcome,
 } from "./ledger.js";
+import { isRepoAllowlisted } from "../post/config.js";
+import { postGithubComment, type FetchFn } from "../post/github-comment.js";
 
 /** Default fixture directory for a bare `--scripted` flag (relative to cwd). */
 export const DEMO_FIXTURE_DIR = "fixtures/demo-1";
@@ -46,6 +49,27 @@ export { executePythonScript };
 export interface ScriptedDemoResult {
   runId: number;
   verdict: GateVerdict;
+}
+
+/** Optional delivery-edge posting after a scripted run completes. */
+export interface RunPostOptions {
+  postEnabled?: boolean;
+  allowlist?: string[];
+  dashboardBase?: string;
+  fetchFn?: FetchFn;
+  token?: string;
+}
+
+/** Resolve the trace base without capturing env at import time. */
+function resolveDashboardBase(explicit?: string): string {
+  if (explicit !== undefined && explicit.trim().length > 0) {
+    return explicit.trim().replace(/\/+$/, "");
+  }
+  const env = process.env.DASHBOARD_BASE_URL;
+  if (typeof env === "string" && env.trim().length > 0) {
+    return env.trim().replace(/\/+$/, "");
+  }
+  return "http://localhost:8080";
 }
 
 interface DemoPlan {
@@ -178,7 +202,7 @@ function bisectRowsFor(spec: SymptomSpec, result: EnvRunResult): BisectRow[] {
  * canned bumpers) → repro loop (real-python grade of the candidate, then
  * the shrunk minimal) → submit `repro.py` + `findings.md`.
  */
-export function runScriptedDemo(
+function runScriptedDemoSync(
   issueUrl: string,
   fixtureDir: string = DEMO_FIXTURE_DIR,
   dbPath?: string,
@@ -338,4 +362,73 @@ export function runScriptedDemo(
   } finally {
     db.close();
   }
+}
+
+/**
+ * Post the stored `findings.md` for a completed scripted run and record the
+ * `post_comment` event. Only called on the allowlisted success path; the
+ * event is appended only after the comment POST succeeds.
+ */
+async function postScriptedFindings(
+  runId: number,
+  owner: string,
+  repo: string,
+  issueNumber: number,
+  dbPath: string | undefined,
+  dashboardBase: string,
+  fetchFn?: FetchFn,
+  token?: string,
+): Promise<void> {
+  const db = openLedger(dbPath);
+  try {
+    const findings = getArtifact(db, runId, "findings.md")?.content ?? "";
+    const body = `${findings}\n\nTrace: ${dashboardBase}/runs/${runId}`;
+    await postGithubComment(owner, repo, issueNumber, body, {
+      fetch: fetchFn ?? globalThis.fetch,
+      token: token ?? process.env.GITHUB_TOKEN,
+    });
+    appendEvent(db, runId, "post_comment", { kind: "github_comment", body });
+  } finally {
+    db.close();
+  }
+}
+
+export function runScriptedDemo(issueUrl: string, fixtureDir?: string, dbPath?: string): ScriptedDemoResult;
+export function runScriptedDemo(
+  issueUrl: string,
+  fixtureDir: string | undefined,
+  dbPath: string | undefined,
+  postOptions: RunPostOptions & { postEnabled: true },
+): Promise<ScriptedDemoResult>;
+export function runScriptedDemo(
+  issueUrl: string,
+  fixtureDir?: string,
+  dbPath?: string,
+  postOptions?: RunPostOptions,
+): ScriptedDemoResult | Promise<ScriptedDemoResult>;
+export function runScriptedDemo(
+  issueUrl: string,
+  fixtureDir: string = DEMO_FIXTURE_DIR,
+  dbPath?: string,
+  postOptions?: RunPostOptions,
+): ScriptedDemoResult | Promise<ScriptedDemoResult> {
+  if (postOptions?.postEnabled !== true) {
+    return runScriptedDemoSync(issueUrl, fixtureDir, dbPath);
+  }
+  const ref = parseIssueUrl(issueUrl);
+  if (postOptions.allowlist !== undefined && !isRepoAllowlisted(ref.owner, ref.repo, postOptions.allowlist)) {
+    throw new Error("repo not in post allowlist");
+  }
+  const dashboardBase = resolveDashboardBase(postOptions.dashboardBase);
+  const { runId, verdict } = runScriptedDemoSync(issueUrl, fixtureDir, dbPath);
+  return postScriptedFindings(
+    runId,
+    ref.owner,
+    ref.repo,
+    ref.number,
+    dbPath,
+    dashboardBase,
+    postOptions.fetchFn,
+    postOptions.token,
+  ).then(() => ({ runId, verdict }));
 }

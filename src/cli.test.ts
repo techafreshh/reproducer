@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
@@ -215,5 +215,133 @@ describe("cli replay mode", () => {
     expect(code).toBe(2);
     expect(stdout()).toContain("missing fixture: issue.json");
     expect(stdout()).toContain("usage:");
+  });
+});
+
+describe("cli --post with repo allowlist", () => {
+  let dbDir: string;
+  let log: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    dbDir = mkdtempSync(join(tmpdir(), "reproducer-cli-post-"));
+    log = vi.spyOn(console, "log").mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    log.mockRestore();
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  function stdout(): string {
+    return log.mock.calls.map((args) => args.join(" ")).join("\n");
+  }
+
+  function writeAllowlistConfig(allowlist: string[], dashboardBase?: string): string {
+    const path = join(dbDir, `post-config-${Date.now()}-${Math.floor(Math.random() * 1e6)}.json`);
+    writeFileSync(
+      path,
+      JSON.stringify({ reproducer: { post: { allowlist }, dashboardBase } }),
+    );
+    return path;
+  }
+
+  function commentCalls(fetchStub: ReturnType<typeof vi.fn>): Array<{ url: string; init: Record<string, unknown> }> {
+    return fetchStub.mock.calls
+      .filter(([url]) => typeof url === "string" && /\/issues\/\d+\/comments$/.test(url))
+      .map(([url, init]) => ({ url: url as string, init: (init ?? {}) as Record<string, unknown> }));
+  }
+
+  function eventKinds(dbPath: string): string[] {
+    const db = new Database(dbPath, { readonly: true });
+    try {
+      const rows = db.prepare("SELECT kind FROM events").all() as Array<{ kind: string }>;
+      return rows.map((row) => row.kind);
+    } finally {
+      db.close();
+    }
+  }
+
+  it("run without --post makes zero comment calls and records no post_comment event", () => {
+    const fetchStub = vi.fn(async () => ({ ok: true, status: 201 }) as Response);
+    vi.stubGlobal("fetch", fetchStub);
+    const dbPath = join(dbDir, "nopost-ledger.db");
+    const code = main([
+      "run",
+      "https://github.com/demo/ducklings/issues/1",
+      "--scripted",
+      "fixtures/demo-1",
+      "--db",
+      dbPath,
+    ]);
+    expect(code).toBe(0);
+    expect(stdout()).toContain("verdict: reproduced");
+    expect(commentCalls(fetchStub)).toHaveLength(0);
+    expect(eventKinds(dbPath)).not.toContain("post_comment");
+  });
+
+  it("--post with a non-allowlisted repo exits 3 with the sentinel and posts nothing", () => {
+    const fetchStub = vi.fn(async () => ({ ok: true, status: 201 }) as Response);
+    vi.stubGlobal("fetch", fetchStub);
+    const config = writeAllowlistConfig(["techafreshh/reproducer"]);
+    const code = main([
+      "run",
+      "https://github.com/stranger/other/issues/9",
+      "--scripted",
+      "fixtures/demo-1",
+      "--post",
+      "--config",
+      config,
+      "--db",
+      join(dbDir, "denied-ledger.db"),
+    ]);
+    expect(code).toBe(3);
+    expect(stdout()).toContain("repo not in post allowlist");
+    expect(fetchStub).not.toHaveBeenCalled();
+  });
+
+  it("--post with an allowlisted repo posts findings.md and records a github_comment event", async () => {
+    const fetchStub = vi.fn(async () => ({ ok: true, status: 201 }) as Response);
+    vi.stubGlobal("fetch", fetchStub);
+    const config = writeAllowlistConfig(["techafreshh/reproducer"], "https://dash.example");
+    const dbPath = join(dbDir, "posted-ledger.db");
+    const code = await main([
+      "run",
+      "https://github.com/techafreshh/reproducer/issues/17",
+      "--scripted",
+      "fixtures/demo-1",
+      "--post",
+      "--config",
+      config,
+      "--db",
+      dbPath,
+    ]);
+    expect(code).toBe(0);
+    expect(stdout()).toContain("verdict: reproduced");
+
+    const comments = commentCalls(fetchStub);
+    expect(comments).toHaveLength(1);
+    expect(comments[0]?.url).toBe("https://api.github.com/repos/techafreshh/reproducer/issues/17/comments");
+    const sent = JSON.parse(String((comments[0]?.init as { body: string }).body)) as { body: string };
+    expect(sent.body).toContain("Trace: https://dash.example/runs/1");
+
+    const db = new Database(dbPath, { readonly: true });
+    try {
+      const findings = (
+        db.prepare("SELECT content FROM artifacts WHERE run_id = 1 AND name = 'findings.md'").get() as {
+          content: string;
+        }
+      ).content;
+      expect(sent.body).toContain(findings);
+      const events = db
+        .prepare("SELECT payload_json FROM events WHERE kind = 'post_comment'")
+        .all() as Array<{ payload_json: string }>;
+      expect(events).toHaveLength(1);
+      const payload = JSON.parse(events[0]?.payload_json ?? "{}") as { kind: string; body: string };
+      expect(payload.kind).toBe("github_comment");
+      expect(payload.body).toContain(findings);
+    } finally {
+      db.close();
+    }
   });
 });
