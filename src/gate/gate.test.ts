@@ -355,14 +355,25 @@ describe("gradeAgainstSpec wrong-output", () => {
     }
   });
 
-  it("grades a non-zero exit inconclusive: the crash short-circuits the output", () => {
+  it("grades a non-zero exit inconclusive when stdout misses an entry", () => {
     const result = gradeAgainstSpec(WRONG_OUTPUT_SPEC, {
       exitCode: 1,
-      stdout: "total = 42\nDONE\ncode 42\n",
+      stdout: "DONE\n",
       stderr: "",
       timedOut: false,
     });
     expect(result.verdict).toBe("inconclusive");
+  });
+
+  it("grades reproduced when full output matches despite a non-zero exit", () => {
+    const result = gradeAgainstSpec(WRONG_OUTPUT_SPEC, {
+      exitCode: 1,
+      stdout: "  total =  42\nDONE\ncode 42\n",
+      stderr: 'Traceback (most recent call last):\nAssertionError: total = 42',
+      timedOut: false,
+    });
+    expect(result.verdict).toBe("reproduced");
+    expect(result.detail).toMatchObject({ outputMatched: 3, outputRequired: 3 });
   });
 });
 
