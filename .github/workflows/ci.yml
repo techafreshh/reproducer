@@ -19,17 +19,29 @@ jobs:
         with:
           node-version: 22
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: 3.x
+
+      - name: Python venv sanity
+        run: python3 -m venv --help && python3 -m pip --version
+
       - name: Install
         run: bun install --frozen-lockfile
 
       - name: Typecheck
-        run: npm run typecheck
+        run: bunx tsc --noEmit
+
+      - name: Test
+        run: bun test
+        env:
+          PYPI_LIVE: "0"
+
+      - name: Vitest gate suites
+        run: bunx vitest run src/gate src/sanitize
 
       - name: Build
         run: npm run build
-
-      - name: Test
-        run: npm test
 
       - name: Healthz smoke
         run: |
