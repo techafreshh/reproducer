@@ -44,7 +44,7 @@ describe("listVersions", () => {
     expect(comparePep440("1.0", "1.0.post1")).toBeLessThan(0);
   });
 
-  it.runIf(process.env.PYPI_LIVE !== "0")("live HttpPypiClient for six contains 1.16.0, sorted ascending", async () => {
+  it.runIf(process.env.PYPI_LIVE === "1")("live HttpPypiClient for six contains 1.16.0, sorted ascending", async () => {
     const versions = await listVersions(new HttpPypiClient(), "six");
     expect(versions).toContain("1.16.0");
     const sorted = [...versions].sort(comparePep440);
