@@ -39,7 +39,8 @@ import {
   type BudgetState,
 } from "../orchestrator/budgets.js";
 import { grade, type EnvRunResult, type GateVerdict } from "../gate/gate.js";
-import { BisectInputSchema, runBisect } from "./tools/bisect.js";
+import { BisectInputSchema, runBisect, toBisectResult, type BisectResult } from "./tools/bisect.js";
+import { withBisectSection } from "../report/findings.js";
 
 /** Read-only ingestion: issue body/comments via public REST (scripted: canned). */
 export const GithubGetIssueSchema = Type.Object({
@@ -493,6 +494,7 @@ async function dispatchSession(
   let currentHypothesis = 0;
   let envHandleCounter = 0;
   let lastVerdict: GateVerdict | null = null;
+  let latestBisect: BisectResult | null = null;
   let submitted = false;
 
   const ensureHypothesis = (): boolean => {
@@ -655,11 +657,11 @@ async function dispatchSession(
         continue;
       }
       if (versions.length > 8) {
-        agent.emit("tool_call", { tool: "bisect", hypothesis: currentHypothesis, versions });
-        agent.emit("budget_exceeded", {
-          refused: "env_run",
+        agent.emit("tool_call", {
+          tool: "bisect",
           hypothesis: currentHypothesis,
-          reason: "bisect versions exceed 8",
+          versions,
+          error: `bisect accepts max 8 versions, got ${versions.length}`,
         });
         continue;
       }
@@ -667,7 +669,14 @@ async function dispatchSession(
       agent.emit("tool_call", { tool: "bisect", hypothesis: currentHypothesis, versions });
       const spec = getSymptomSpec(db, runId);
       const rows = runBisect(spec, versions, bisectResultsOf(step));
+      latestBisect = toBisectResult(rows);
       for (const row of rows) {
+        agent.emit("tool_call", {
+          tool: "env_run",
+          hypothesis: currentHypothesis,
+          version: row.version,
+          bisect: true,
+        });
         agent.emit("gate", {
           verdict: row.verdict,
           reason: row.reason,
@@ -698,10 +707,17 @@ async function dispatchSession(
       } else if (status === "reproduced") {
         putArtifact(db, runId, "repro.py", "# repro: no canned script supplied\n");
       }
-      if (findingsMd !== undefined) {
-        putArtifact(db, runId, "findings.md", findingsMd);
-      } else if (status === "reproduced") {
-        putArtifact(db, runId, "findings.md", "# findings: no canned notes supplied\n");
+      const baseFindings =
+        findingsMd ?? (status === "reproduced" ? "# findings: no canned notes supplied\n" : undefined);
+      if (baseFindings !== undefined) {
+        putArtifact(
+          db,
+          runId,
+          "findings.md",
+          latestBisect === null ? baseFindings : withBisectSection(baseFindings, latestBisect),
+        );
+      } else if (latestBisect !== null) {
+        putArtifact(db, runId, "findings.md", withBisectSection("# findings\n", latestBisect));
       }
       agent.emit("tool_call", { tool: "submit_report", hypothesis: currentHypothesis, status });
       agent.emit("report", { status, hypothesis: currentHypothesis });

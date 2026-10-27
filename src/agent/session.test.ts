@@ -157,4 +157,60 @@ describe("investigation session", () => {
     expect(kinds).toContain("llm_turn");
     expect(kinds).toContain("gate");
   });
+
+  it("bisects 3 versions into findings.md with firstBad 2.2.0 and 3 env_run events", async () => {
+    const goodStderr = [
+      "Traceback (most recent call last):",
+      '  File "/app/cli.py", line 14, in <module>',
+      "    run()",
+      '  File "/app/core.py", line 7, in parse',
+      '    raise TypeError("bad type")',
+      "TypeError: bad type",
+    ].join("\n");
+    const script = [
+      {
+        tool: "bisect",
+        versions: ["2.0.0", "2.1.0", "2.2.0"],
+        results: [
+          { exitCode: 1, stdout: "", stderr: goodStderr, timedOut: false },
+          { exitCode: 1, stdout: "", stderr: goodStderr, timedOut: false },
+          { exitCode: 1, stdout: "", stderr: VALUE_ERROR_STDERR, timedOut: false },
+        ],
+      },
+      {
+        tool: "submit_report",
+        status: "reproduced",
+        reproPy: "print('repro')\n",
+        findingsMd: "# findings\nreproduced\n",
+      },
+    ];
+    await runSession(1, script, db);
+    const findings = getArtifact(db, 1, "findings.md")?.content ?? "";
+    expect(findings).toContain("## Bisect");
+    expect(findings).toContain("2.0.0");
+    expect(findings).toContain("2.1.0");
+    expect(findings).toContain("2.2.0");
+    expect(findings).toContain("firstBad");
+    expect(findings).toContain("2.2.0");
+    const events = getEvents(db, 1);
+    const toolCalls = events.filter((event) => event.kind === "tool_call").map((event) => JSON.parse(event.payload_json) as Record<string, unknown>);
+    const envRuns = toolCalls.filter((payload) => payload.tool === "env_run");
+    expect(envRuns).toHaveLength(3);
+    const gates = events.filter((event) => event.kind === "gate");
+    expect(gates).toHaveLength(3);
+    const versions = gates.map((event) => (JSON.parse(event.payload_json) as Record<string, unknown>).version);
+    expect(versions).toEqual(["2.0.0", "2.1.0", "2.2.0"]);
+  });
+
+  it("refuses a 12-version bisect with max 8 versions and zero sandbox events", async () => {
+    const versions = Array.from({ length: 12 }, (_, index) => `2.${index}.0`);
+    await runSession(1, [{ tool: "bisect", versions }], db);
+    const events = getEvents(db, 1);
+    const toolCalls = events.filter((event) => event.kind === "tool_call").map((event) => JSON.parse(event.payload_json) as Record<string, unknown>);
+    const bisectCalls = toolCalls.filter((payload) => payload.tool === "bisect");
+    expect(bisectCalls.length).toBeGreaterThanOrEqual(1);
+    expect(JSON.stringify(bisectCalls)).toContain("max 8 versions");
+    expect(toolCalls.filter((payload) => payload.tool === "env_run")).toHaveLength(0);
+    expect(events.filter((event) => event.kind === "gate")).toHaveLength(0);
+  });
 });
