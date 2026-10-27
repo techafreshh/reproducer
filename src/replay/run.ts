@@ -20,9 +20,12 @@ import { parseIssueUrl } from "../issue-url.js";
 import { createScriptedProvider } from "../llm/provider.js";
 import {
   appendEvent,
+  getArtifact,
   insertRun,
   openLedger,
 } from "../orchestrator/ledger.js";
+import { isRepoAllowlisted } from "../post/config.js";
+import { postGithubComment, type FetchFn } from "../post/github-comment.js";
 import { executePythonScript } from "./exec.js";
 import { DEFAULT_REPLAY_DIR, FixturesClient } from "./fixtures.js";
 
@@ -34,6 +37,27 @@ export const REPLAY_PYTHON_TIMEOUT_MS = 15000;
 export interface ReplayResult {
   runId: number;
   status: string;
+}
+
+/** Optional delivery-edge posting after a replay run completes. */
+export interface ReplayPostOptions {
+  postEnabled?: boolean;
+  allowlist?: string[];
+  dashboardBase?: string;
+  fetchFn?: FetchFn;
+  token?: string;
+}
+
+/** Resolve the trace base without capturing env at import time. */
+function resolveReplayDashboardBase(explicit?: string): string {
+  if (explicit !== undefined && explicit.trim().length > 0) {
+    return explicit.trim().replace(/\/+$/, "");
+  }
+  const env = process.env.DASHBOARD_BASE_URL;
+  if (typeof env === "string" && env.trim().length > 0) {
+    return env.trim().replace(/\/+$/, "");
+  }
+  return "http://localhost:8080";
 }
 
 /** Read and parse a JSON fixture; absent or unparseable reads fail loudly with the basename sentinel. */
@@ -166,6 +190,7 @@ export async function runReplay(
   issueUrl: string,
   fixtureDir: string = DEFAULT_REPLAY_DIR,
   dbPath?: string,
+  postOptions?: ReplayPostOptions,
 ): Promise<ReplayResult> {
   const issue = parseIssueUrl(issueUrl);
   const dir = isAbsolute(fixtureDir) ? fixtureDir : resolve(process.cwd(), fixtureDir);
@@ -195,6 +220,22 @@ export async function runReplay(
     }
 
     const session = await runSession(runId, enrichEnvRuns(trace), db);
+    if (postOptions?.postEnabled === true) {
+      if (
+        postOptions.allowlist !== undefined &&
+        !isRepoAllowlisted(issue.owner, issue.repo, postOptions.allowlist)
+      ) {
+        throw new Error("repo not in post allowlist");
+      }
+      const findings = getArtifact(db, runId, "findings.md")?.content ?? "";
+      const base = resolveReplayDashboardBase(postOptions.dashboardBase);
+      const body = `${findings}\n\nTrace: ${base}/runs/${runId}`;
+      await postGithubComment(issue.owner, issue.repo, issue.number, body, {
+        fetch: postOptions.fetchFn ?? globalThis.fetch,
+        token: postOptions.token ?? process.env.GITHUB_TOKEN,
+      });
+      appendEvent(db, runId, "post_comment", { kind: "github_comment", body });
+    }
     return { runId, status: session.status };
   } finally {
     db.close();
