@@ -16,6 +16,13 @@ import { tmpdir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 import { gradeAgainstSpec, type EnvRunResult, type GateVerdict } from "../gate/gate.js";
 import { freezeSymptomSpec, validateSymptomSpec, type SymptomSpec } from "../gate/spec.js";
+import { runBisect, type BisectRow } from "../agent/tools/bisect.js";
+import {
+  buildFindingsMd,
+  buildReproPy,
+  collectCitationUrls,
+  type ResearchVerdict,
+} from "../report/findings.js";
 import { parseIssueUrl } from "../issue-url.js";
 import {
   appendEvent,
@@ -117,6 +124,76 @@ function stripCommentsAndBlanks(script: string): string {
     .concat("\n");
 }
 
+/** Demo-1 research verdict: hatch() defaulting to brood(-1) is a caller-side misuse. */
+const DEMO_RESEARCH_VERDICT: ResearchVerdict = "likely-misconfiguration";
+
+/** Hypotheses joined from scripted bumper payloads for `## Hypothesis`. */
+function hypothesisOf(bumpers: Array<{ kind: string; payload: unknown }>): string {
+  const parts: string[] = [];
+  for (const bumper of bumpers) {
+    const payload = bumper.payload;
+    if (isRecord(payload) && typeof payload.hypothesis === "string" && payload.hypothesis.length > 0) {
+      parts.push(payload.hypothesis);
+    } else if (typeof payload === "string" && payload.length > 0) {
+      parts.push(payload);
+    } else if (isRecord(payload)) {
+      try {
+        parts.push(JSON.stringify(payload));
+      } catch {
+        continue;
+      }
+    }
+  }
+  if (parts.length === 0) return "No hypothesis recorded.";
+  return parts.map((part) => `- ${part}`).join("\n");
+}
+
+/** Reported environment from the canned issue body (the `Environment:` line when present). */
+function reportedEnvOf(cannedIssue: unknown): string {
+  if (isRecord(cannedIssue) && typeof cannedIssue.body === "string" && cannedIssue.body.length > 0) {
+    const body = cannedIssue.body;
+    const envLine = body.split("\n").find((line) => /environment:/i.test(line));
+    if (envLine !== undefined) return envLine.trim();
+    const collapsed = body.replace(/\s+/g, " ").trim();
+    return collapsed.length <= 500 ? collapsed : collapsed.slice(0, 500);
+  }
+  return "unknown (no issue body)";
+}
+
+/** Issue title for the `## Evidence` section. */
+function issueTitleOf(cannedIssue: unknown): string {
+  if (isRecord(cannedIssue) && typeof cannedIssue.title === "string") return cannedIssue.title;
+  return "";
+}
+
+/** One-line evidence entry: issue, trigger, and the gate grading for a script. */
+function evidenceOf(title: string, spec: SymptomSpec, label: string, verdict: GateVerdict, reason: string): string {
+  return [`- Issue: ${title.length > 0 ? title : "(no title)"}`, `- Trigger: ${spec.trigger}`, `- Gate (${label}): ${verdict} \u2014 ${reason}`].join("\n");
+}
+
+/** Fix sketch: concrete for reproduced runs, honest placeholder otherwise. */
+function fixSketchFor(status: GateVerdict): string {
+  if (status === "reproduced") {
+    return "Validate the hatch() default: use brood(0) for an empty flock or surface a caller-facing error instead of propagating ValueError from brood(-1).";
+  }
+  return "No fix sketch \u2014 run did not reproduce conclusively.";
+}
+
+/** Grade one env result per spec version for the `## Bisect` table. */
+function bisectRowsFor(spec: SymptomSpec, result: EnvRunResult): BisectRow[] {
+  const versions = spec.versions.length > 0 ? spec.versions : ["0.1.0"];
+  try {
+    return runBisect(spec, versions, versions.map(() => result));
+  } catch {
+    const graded = gradeAgainstSpec(spec, result);
+    return versions.map((version) => ({
+      version,
+      verdict: graded.verdict,
+      reason: graded.detail.reason,
+    }));
+  }
+}
+
 /**
  * Run a repro script with the real `python3`, graded exactly like the
  * delivered artifact: written to a temp file named `repro.py` so the parsed
@@ -188,12 +265,32 @@ export function runScriptedDemo(
       reason: candidateGrade.detail.reason,
     });
 
+    const citations = collectCitationUrls(cannedTavily);
+    const hypothesis = hypothesisOf(plan.bumpers);
+    const reportedEnv = reportedEnvOf(cannedIssue);
+    const title = issueTitleOf(cannedIssue);
+    const library = spec.library;
+    const version = spec.versions[0] ?? "unknown";
+
     let minimal = plan.minimalRepro;
     if (countNonEmptyLines(minimal) > MAX_MINIMAL_NON_EMPTY_LINES) {
       minimal = stripCommentsAndBlanks(minimal);
     }
     if (countNonEmptyLines(minimal) > MAX_MINIMAL_NON_EMPTY_LINES) {
-      putArtifact(db, runId, "findings.md", plan.findingsMd);
+      const rows = bisectRowsFor(spec, candidateResult);
+      const reproPy = buildReproPy({ library, version, body: minimal, inconclusive: true });
+      const findings = buildFindingsMd({
+        hypothesis,
+        evidence: `${evidenceOf(title, spec, "candidate", candidateGrade.verdict, candidateGrade.detail.reason)}\n- Shrink: minimal repro exceeds the 20-line shrink budget`,
+        researchVerdict: DEMO_RESEARCH_VERDICT,
+        citations,
+        bisectRows: rows,
+        fixSketch: fixSketchFor("inconclusive"),
+        reportedEnv,
+        status: "inconclusive",
+      });
+      putArtifact(db, runId, "repro.py", reproPy);
+      putArtifact(db, runId, "findings.md", findings);
       appendEvent(db, runId, "report", {
         status: "inconclusive",
         reason: "minimal repro exceeds the 20-line shrink budget",
@@ -220,8 +317,20 @@ export function runScriptedDemo(
       verdict = "reproduced";
     }
     if (finalScript === null) {
-      putArtifact(db, runId, "repro.py", minimal);
-      putArtifact(db, runId, "findings.md", plan.findingsMd);
+      const rows = bisectRowsFor(spec, minimalResult);
+      const reproPy = buildReproPy({ library, version, body: minimal, inconclusive: true });
+      const findings = buildFindingsMd({
+        hypothesis,
+        evidence: evidenceOf(title, spec, "minimal", minimalGrade.verdict, minimalGrade.detail.reason),
+        researchVerdict: DEMO_RESEARCH_VERDICT,
+        citations,
+        bisectRows: rows,
+        fixSketch: fixSketchFor("inconclusive"),
+        reportedEnv,
+        status: "inconclusive",
+      });
+      putArtifact(db, runId, "repro.py", reproPy);
+      putArtifact(db, runId, "findings.md", findings);
       appendEvent(db, runId, "report", {
         status: "inconclusive",
         reason: "neither the candidate nor the minimal repro graded reproduced",
@@ -230,9 +339,29 @@ export function runScriptedDemo(
       return { runId, verdict: "inconclusive" };
     }
 
-    if (!finalScript.includes("import") || finalScript.split("\n").length > MAX_ARTIFACT_LINES) {
-      putArtifact(db, runId, "repro.py", finalScript);
-      putArtifact(db, runId, "findings.md", plan.findingsMd);
+    const finalResult = finalScript === minimal ? minimalResult : candidateResult;
+    const finalGrade = finalScript === minimal ? minimalGrade : candidateGrade;
+    const builtRepro = buildReproPy({ library, version, body: finalScript, inconclusive: false });
+    const builtCodeLines = countNonEmptyLines(stripCommentsAndBlanks(builtRepro));
+    if (
+      !builtRepro.includes("import") ||
+      builtRepro.split("\n").length > MAX_ARTIFACT_LINES ||
+      builtCodeLines > MAX_MINIMAL_NON_EMPTY_LINES
+    ) {
+      const rows = bisectRowsFor(spec, finalResult);
+      const reproPy = buildReproPy({ library, version, body: finalScript, inconclusive: true });
+      const findings = buildFindingsMd({
+        hypothesis,
+        evidence: `${evidenceOf(title, spec, "final", finalGrade.verdict, finalGrade.detail.reason)}\n- Bounds: final repro violates the artifact bounds`,
+        researchVerdict: DEMO_RESEARCH_VERDICT,
+        citations,
+        bisectRows: rows,
+        fixSketch: fixSketchFor("inconclusive"),
+        reportedEnv,
+        status: "inconclusive",
+      });
+      putArtifact(db, runId, "repro.py", reproPy);
+      putArtifact(db, runId, "findings.md", findings);
       appendEvent(db, runId, "report", {
         status: "inconclusive",
         reason: "final repro violates the artifact bounds",
@@ -241,8 +370,19 @@ export function runScriptedDemo(
       return { runId, verdict: "inconclusive" };
     }
 
-    putArtifact(db, runId, "repro.py", finalScript);
-    putArtifact(db, runId, "findings.md", plan.findingsMd);
+    const bisectRows = bisectRowsFor(spec, finalResult);
+    const findings = buildFindingsMd({
+      hypothesis,
+      evidence: evidenceOf(title, spec, "final", finalGrade.verdict, finalGrade.detail.reason),
+      researchVerdict: DEMO_RESEARCH_VERDICT,
+      citations,
+      bisectRows,
+      fixSketch: fixSketchFor(verdict),
+      reportedEnv,
+      status: verdict,
+    });
+    putArtifact(db, runId, "repro.py", builtRepro);
+    putArtifact(db, runId, "findings.md", findings);
     appendEvent(db, runId, "report", { status: verdict, verdict });
     setRunOutcome(db, runId, verdict, verdict);
     return { runId, verdict };
