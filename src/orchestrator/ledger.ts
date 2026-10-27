@@ -153,6 +153,22 @@ export function insertRun(db: Ledger, issueUrl: string): number {
   return Number(info.lastInsertRowid);
 }
 
+/**
+ * Set a run's terminal outcome: `reproduced` / `not-reproduced` /
+ * `inconclusive` (or back to `created`). Updates `status` and `verdict`
+ * together — verdict defaults to the status for terminal states and to null
+ * for `created` — so the dashboard serves both via the existing `getRun`.
+ */
+export function setRunOutcome(
+  db: Ledger,
+  runId: number,
+  status: string,
+  verdict?: string | null,
+): void {
+  const resolvedVerdict = verdict === undefined ? (status === "created" ? null : status) : verdict;
+  db.prepare("UPDATE runs SET status = ?, verdict = ? WHERE id = ?").run(status, resolvedVerdict, runId);
+}
+
 /** Append an event with the next per-run sequence number; returns the event id. */
 export function appendEvent(db: Ledger, runId: number, kind: string, payload: unknown): number {
   const append = db.transaction((): number => {
