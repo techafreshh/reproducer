@@ -6,30 +6,30 @@
  *
  * Fixture layout (base dir = `fixtures/<case>`):
  * - `<base>/issue.json`
- * - `<base>/tavily/<sha256(query)>.json` (lowercase hex of the raw query)
- * - `<base>/tavily-extract/<sha256(url)>.json` (extract; falls back to
- *   `<base>/tavily/<sha256(url)>.json`)
+ * - `<base>/tinyfish/<sha256(query)>.json` (lowercase hex of the raw query)
+ * - `<base>/tinyfish-extract/<sha256(url)>.json` (extract; falls back to
+ *   `<base>/tinyfish/<sha256(url)>.json`)
  */
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { githubGetIssue, mapGitHubIssue, type FetchFn } from "../agent/tools/github.js";
-import { mapTavilyExtract, mapTavilySearchResults } from "../agent/tools/tavily.js";
-import { tavilyExtract, tavilySearch } from "../agent/tools/tavily.js";
+import { mapTinyfishExtract, mapTinyfishSearchResults } from "../agent/tools/tinyfish.js";
+import { tinyfishExtract, tinyfishSearch } from "../agent/tools/tinyfish.js";
 import { parseIssueUrl } from "../issue-url.js";
 
 export type {
   GitHubIssue,
-  TavilyExtractResponse,
-  TavilyResult,
-  TavilySearchResponse,
+  TinyfishExtractResponse,
+  TinyfishResult,
+  TinyfishSearchResponse,
   ToolClient,
 } from "../agent/tools/types.js";
 import type {
   GitHubIssue,
-  TavilyExtractResponse,
-  TavilySearchOptions,
-  TavilySearchResponse,
+  TinyfishExtractResponse,
+  TinyfishSearchOptions,
+  TinyfishSearchResponse,
   ToolClient,
 } from "../agent/tools/types.js";
 
@@ -75,7 +75,7 @@ function firstExisting(candidates: string[]): string | null {
 }
 
 /**
- * Pull result payloads out of the legacy `tavily.json` shape
+ * Pull result payloads out of the legacy `tinyfish.json` shape
  * (`{searches: [{query, results}]}` or `{results}` or a bare array): the
  * query-matching entry when present, else the first entry. Returns `null`
  * when the legacy file carries nothing usable so the caller fails loudly.
@@ -112,19 +112,19 @@ function toCommentPayloads(value: unknown): Array<{ body?: unknown }> {
 }
 
 /**
- * Live driver: real GitHub/Tavily REST. The only module allowed to read
+ * Live driver: real GitHub/TinyFish REST. The only module allowed to read
  * `process.env` (here in the constructor); the tool functions themselves take
  * keys via options so tests stay hermetic.
  */
 export class LiveClient implements ToolClient {
-  private readonly tavilyApiKey: string | undefined;
+  private readonly tinyfishApiKey: string | undefined;
   private readonly githubToken: string | undefined;
   private readonly fetchFn: FetchFn | undefined;
 
   constructor(env?: NodeJS.ProcessEnv, fetchFn?: FetchFn) {
     const source = env ?? process.env;
-    const tavilyApiKey = source.TAVILY_API_KEY;
-    this.tavilyApiKey = tavilyApiKey === "" ? undefined : tavilyApiKey;
+    const tinyfishApiKey = source.TINYFISH_API_KEY;
+    this.tinyfishApiKey = tinyfishApiKey === "" ? undefined : tinyfishApiKey;
     const githubToken = source.GITHUB_TOKEN;
     this.githubToken = githubToken === "" ? undefined : githubToken;
     this.fetchFn = fetchFn;
@@ -134,17 +134,17 @@ export class LiveClient implements ToolClient {
     return githubGetIssue(url, { token: this.githubToken, fetch: this.fetchFn });
   }
 
-  async tavilySearch(query: string, opts: TavilySearchOptions = {}): Promise<TavilySearchResponse> {
-    return tavilySearch(query, { maxResults: opts.maxResults, apiKey: this.tavilyApiKey, fetch: this.fetchFn });
+  async tinyfishSearch(query: string, opts: TinyfishSearchOptions = {}): Promise<TinyfishSearchResponse> {
+    return tinyfishSearch(query, { maxResults: opts.maxResults, purpose: opts.purpose, apiKey: this.tinyfishApiKey, fetch: this.fetchFn });
   }
 
-  async tavilyExtract(url: string): Promise<TavilyExtractResponse> {
-    return tavilyExtract(url, { apiKey: this.tavilyApiKey, fetch: this.fetchFn });
+  async tinyfishExtract(url: string): Promise<TinyfishExtractResponse> {
+    return tinyfishExtract(url, { apiKey: this.tinyfishApiKey, fetch: this.fetchFn });
   }
 }
 
 /**
- * Fixture driver: canned JSON off disk for keyless CI/replay. Takes the case
+ * Fixture driver: canned JSON on disk for keyless CI/replay. Takes the case
  * base dir (`fixtures/<case>`); every load flows through the same pure mappers
  * as the live path so outputs are shape-identical.
  */
@@ -159,14 +159,14 @@ export class FixturesClient implements ToolClient {
     return [join(this.baseDir, "issue.json")];
   }
 
-  private tavilyCandidates(queryOrUrl: string): string[] {
+  private tinyfishCandidates(queryOrUrl: string): string[] {
     const hash = fixtureHash(queryOrUrl);
-    return [join(this.baseDir, "tavily", `${hash}.json`)];
+    return [join(this.baseDir, "tinyfish", `${hash}.json`)];
   }
 
   private extractCandidates(url: string): string[] {
     const hash = fixtureHash(url);
-    return [join(this.baseDir, "tavily-extract", `${hash}.json`), join(this.baseDir, "tavily", `${hash}.json`)];
+    return [join(this.baseDir, "tinyfish-extract", `${hash}.json`), join(this.baseDir, "tinyfish", `${hash}.json`)];
   }
 
   async githubGetIssue(url: string): Promise<GitHubIssue> {
@@ -181,32 +181,32 @@ export class FixturesClient implements ToolClient {
     return mapGitHubIssue({ title: canned.title, body: canned.body }, comments);
   }
 
-  async tavilySearch(query: string, opts: TavilySearchOptions = {}): Promise<TavilySearchResponse> {
-    const hashed = this.tavilyCandidates(query)[0] ?? join(this.baseDir, "tavily", `${fixtureHash(query)}.json`);
-    const found = firstExisting(this.tavilyCandidates(query));
+  async tinyfishSearch(query: string, opts: TinyfishSearchOptions = {}): Promise<TinyfishSearchResponse> {
+    const hashed = this.tinyfishCandidates(query)[0] ?? join(this.baseDir, "tinyfish", `${fixtureHash(query)}.json`);
+    const found = firstExisting(this.tinyfishCandidates(query));
     if (found !== null) {
       const canned = readJsonFile(found) as unknown;
       const rawResults = Array.isArray(canned)
         ? canned
         : (canned as { results?: unknown }).results ?? [];
-      return mapTavilySearchResults(rawResults, opts.maxResults);
+      return mapTinyfishSearchResults(rawResults, opts.maxResults);
     }
-    // Legacy fallback: the pre-hash `tavily.json` bundle still replays.
-    const legacy = join(this.baseDir, "tavily.json");
+    // Legacy fallback: the pre-hash `tinyfish.json` bundle still replays.
+    const legacy = join(this.baseDir, "tinyfish.json");
     if (existsSync(legacy)) {
       const fallback = legacySearchResults(readJsonFile(legacy), query);
       if (fallback !== null) {
-        return mapTavilySearchResults(fallback, opts.maxResults);
+        return mapTinyfishSearchResults(fallback, opts.maxResults);
       }
     }
     throw new Error(`missing fixture: ${basename(hashed)}`);
   }
 
-  async tavilyExtract(url: string): Promise<TavilyExtractResponse> {
+  async tinyfishExtract(url: string): Promise<TinyfishExtractResponse> {
     const found = firstExisting(this.extractCandidates(url));
     if (found === null) {
-      throw new Error(`missing fixture: ${basename(this.extractCandidates(url)[0] ?? "tavily-extract")}`);
+      throw new Error(`missing fixture: ${basename(this.extractCandidates(url)[0] ?? "tinyfish-extract")}`);
     }
-    return mapTavilyExtract(readJsonFile(found), url);
+    return mapTinyfishExtract(readJsonFile(found), url);
   }
 }

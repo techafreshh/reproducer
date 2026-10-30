@@ -29,5 +29,5 @@ jobs:
         run: npm run cli -- run "${{ github.event.issue.html_url }}" --post --config reproducer.config.json
         env:
           NEBIUS_API_KEY: ${{ secrets.NEBIUS_API_KEY }}
-          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+          TINYFISH_API_KEY: ${{ secrets.TINYFISH_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

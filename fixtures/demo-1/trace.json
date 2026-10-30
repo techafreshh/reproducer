@@ -4,11 +4,11 @@
     "url": "https://github.com/demo/ducklings/issues/1"
   },
   {
-    "tool": "tavily_search",
+    "tool": "tinyfish_search",
     "query": "ducklings ValueError: duckling count must be non-negative"
   },
   {
-    "tool": "tavily_search",
+    "tool": "tinyfish_search",
     "query": "ducklings ValueError"
   },
   {

@@ -16,8 +16,8 @@ import {
 const ROW_RE = /^\| [^|]+ \| (reproduced|not-reproduced|inconclusive) \|$/m;
 
 function demoCitations(): string[] {
-  const tavily = JSON.parse(readFileSync(join("fixtures/demo-1", "tavily.json"), "utf8")) as unknown;
-  return collectCitationUrls(tavily);
+  const tinyfish = JSON.parse(readFileSync(join("fixtures/demo-1", "tinyfish.json"), "utf8")) as unknown;
+  return collectCitationUrls(tinyfish);
 }
 
 function sampleRows(): BisectRow[] {

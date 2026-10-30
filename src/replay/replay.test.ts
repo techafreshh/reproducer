@@ -37,34 +37,34 @@ describe("FixturesClient missing-fixture sentinel", () => {
     );
   });
 
-  it("loads `tavily/<sha256(query)>.json` keyed by the raw query", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "reproducer-replay-tavily-"));
+  it("loads `tinyfish/<sha256(query)>.json` keyed by the raw query", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "reproducer-replay-tinyfish-"));
     const query = "ducklings ValueError hatch";
-    mkdirSync(join(dir, "tavily"), { recursive: true });
+    mkdirSync(join(dir, "tinyfish"), { recursive: true });
     writeFileSync(
-      join(dir, "tavily", `${fixtureHash(query)}.json`),
+      join(dir, "tinyfish", `${fixtureHash(query)}.json`),
       JSON.stringify({
-        results: [{ title: "t", url: "https://example.com/t", content: "hatch crashes" }],
+        results: [{ title: "t", url: "https://example.com/t", snippet: "hatch crashes" }],
       }),
     );
-    const response = await new FixturesClient(dir).tavilySearch(query);
+    const response = await new FixturesClient(dir).tinyfishSearch(query);
     expect(response.results.map((entry) => entry.url)).toContain("https://example.com/t");
   });
 
-  it("falls back to the legacy `tavily.json` bundle when no hash file exists", async () => {
+  it("falls back to the legacy `tinyfish.json` bundle when no hash file exists", async () => {
     const dir = mkdtempSync(join(tmpdir(), "reproducer-replay-legacy-"));
     const query = "ducklings ValueError hatch";
     writeFileSync(
-      join(dir, "tavily.json"),
+      join(dir, "tinyfish.json"),
       JSON.stringify({ searches: [{ query, results: [{ url: "https://example.com/legacy" }] }] }),
     );
-    const response = await new FixturesClient(dir).tavilySearch(query);
+    const response = await new FixturesClient(dir).tinyfishSearch(query);
     expect(response.results.map((entry) => entry.url)).toContain("https://example.com/legacy");
   });
 
-  it("throws a basename-only sentinel when neither hash nor legacy Tavily exists", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "reproducer-replay-notavily-"));
-    await expect(new FixturesClient(dir).tavilySearch("some query")).rejects.toThrow(/missing fixture: [0-9a-f]+\.json/);
+  it("throws a basename-only sentinel when neither hash nor legacy TinyFish exists", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "reproducer-replay-notinyfish-"));
+    await expect(new FixturesClient(dir).tinyfishSearch("some query")).rejects.toThrow(/missing fixture: [0-9a-f]+\.json/);
   });
 });
 
@@ -95,7 +95,7 @@ describe("enrichEnvRuns", () => {
     const steps = enrichEnvRuns([
       { tool: "env_run", script: 'print("hello")\n' },
       { tool: "env_run", envResult: { exitCode: 0, stdout: "canned", stderr: "", timedOut: false } },
-      { tool: "tavily_search", query: "q" },
+      { tool: "tinyfish_search", query: "q" },
     ]);
     expect(steps).toHaveLength(3);
     expect(steps[0]).toMatchObject({
@@ -159,7 +159,7 @@ describe("runReplay per bundle", () => {
     const queries = deriveResearchQueries(spec);
     const client = new FixturesClient(dir);
     for (const query of queries) {
-      const response = await client.tavilySearch(query);
+      const response = await client.tinyfishSearch(query);
       expect(response.results.length).toBeGreaterThan(0);
     }
   });

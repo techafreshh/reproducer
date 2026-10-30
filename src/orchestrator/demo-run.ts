@@ -1,7 +1,7 @@
 /**
  * Scripted end-to-end runner for fixtures/demo-1 (demo/ducklings#1).
  *
- * Keyless validation path: reads the canned issue, Tavily results, and plan
+ * Keyless validation path: reads the canned issue, TinyFish results, and plan
  * off disk, freezes the fixture's symptom spec via the existing latch,
  * executes the plan's repro candidate and minimal repro with the real
  * `python3` (each written to a temp file named `repro.py` so the graded
@@ -198,7 +198,7 @@ function bisectRowsFor(spec: SymptomSpec, result: EnvRunResult): BisectRow[] {
 
 /**
  * Drive the whole engine once on a scripted fixture: triage (freeze the
- * canned spec) → research (replay canned Tavily) → investigation (replay
+ * canned spec) → research (replay canned TinyFish) → investigation (replay
  * canned bumpers) → repro loop (real-python grade of the candidate, then
  * the shrunk minimal) → submit `repro.py` + `findings.md`.
  */
@@ -211,7 +211,7 @@ function runScriptedDemoSync(
   const dir = isAbsolute(fixtureDir) ? fixtureDir : resolve(process.cwd(), fixtureDir);
 
   const cannedIssue = readFixtureJson(dir, "issue.json");
-  const cannedTavily = readFixtureJson(dir, "tavily.json");
+  const cannedTinyfish = readFixtureJson(dir, "tinyfish.json");
   const plan = parseDemoPlan(readFixtureJson(dir, "plan.json"), dir);
   const spec: SymptomSpec = validateSymptomSpec(plan.symptomSpec);
 
@@ -224,7 +224,7 @@ function runScriptedDemoSync(
     appendEvent(db, runId, "triage", { issueUrl: issue.url, title: issueTitle, library: spec.library });
     freezeSymptomSpec(runId, spec, db);
 
-    appendEvent(db, runId, "research", { canned: cannedTavily });
+    appendEvent(db, runId, "research", { canned: cannedTinyfish });
 
     for (const bumper of plan.bumpers) {
       appendEvent(db, runId, bumper.kind, bumper.payload);
@@ -238,7 +238,7 @@ function runScriptedDemoSync(
       reason: candidateGrade.detail.reason,
     });
 
-    const citations = collectCitationUrls(cannedTavily);
+    const citations = collectCitationUrls(cannedTinyfish);
     const hypothesis = hypothesisOf(plan.bumpers);
     const reportedEnv = reportedEnvOf(cannedIssue);
     const title = issueTitleOf(cannedIssue);

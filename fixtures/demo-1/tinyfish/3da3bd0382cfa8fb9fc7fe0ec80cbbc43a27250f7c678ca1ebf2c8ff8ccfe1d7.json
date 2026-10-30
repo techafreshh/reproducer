@@ -1,0 +1,14 @@
+{
+  "results": [
+    {
+      "title": "ducklings brood validation",
+      "url": "https://example.com/docs/ducklings-brood",
+      "snippet": "brood(count) raises ValueError when count is negative; hatch() passes -1 by default and propagates the crash."
+    },
+    {
+      "title": "demo/ducklings issue 1",
+      "url": "https://github.com/demo/ducklings/issues/1",
+      "snippet": "hatch() crashes with ValueError on a negative brood; brood(-1) is the minimal trigger on ducklings 0.1.0."
+    }
+  ]
+}

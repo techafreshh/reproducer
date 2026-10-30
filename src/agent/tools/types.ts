@@ -1,5 +1,6 @@
 /**
- * Shared seam for read-only ingestion (GitHub REST) and research (Tavily REST).
+ * Shared seam for read-only ingestion (GitHub REST) and research (TinyFish
+ * search + fetch).
  *
  * `ToolClient` is the single swappable interface: the orchestrator talks only
  * to this seam, while `LiveClient` (real REST, needs keys) and
@@ -22,8 +23,8 @@ export interface GitHubIssue {
   clean: string;
 }
 
-/** One sanitized Tavily search hit. `content` and `clean` are identical clean text. */
-export interface TavilyResult {
+/** One sanitized TinyFish search hit. `content` and `clean` are identical clean text. */
+export interface TinyfishResult {
   title: string;
   url: string;
   content: string;
@@ -31,39 +32,41 @@ export interface TavilyResult {
   flags: string[];
 }
 
-/** Sanitized Tavily search response; `results.length` never exceeds 5. */
-export interface TavilySearchResponse {
-  results: TavilyResult[];
+/** Sanitized TinyFish search response; `results.length` never exceeds 5. */
+export interface TinyfishSearchResponse {
+  results: TinyfishResult[];
   /** Union of per-result flags, deduplicated preserving first-occurrence order. */
   flags: string[];
-  /** `wrapDataBlock("tavily-search", <joined clean contents>)` envelope. */
+  /** `wrapDataBlock("tinyfish-search", <joined clean contents>)` envelope. */
   wrapped: string;
   /** Joined clean contents backing `wrapped`. */
   clean: string;
 }
 
-/** Sanitized Tavily extract response for a single URL. */
-export interface TavilyExtractResponse {
+/** Sanitized TinyFish fetch response for a single URL. */
+export interface TinyfishExtractResponse {
   url: string;
   content: string;
   clean: string;
   flags: string[];
-  /** `wrapDataBlock("tavily-extract", <clean content>)` envelope. */
+  /** `wrapDataBlock("tinyfish-fetch", <clean content>)` envelope. */
   wrapped: string;
 }
 
-/** Options shared by `tavilySearch` across live and fixture drivers. */
-export interface TavilySearchOptions {
+/** Options shared by `tinyfishSearch` across live and fixture drivers. */
+export interface TinyfishSearchOptions {
   maxResults?: number;
+  /** Optional intent text forwarded as the TinyFish `purpose` query param. */
+  purpose?: string;
 }
 
 /**
- * The single tool seam: read-only GitHub ingestion plus Tavily research.
+ * The single tool seam: read-only GitHub ingestion plus TinyFish research.
  * All three methods sanitize through `sanitizeUntrusted` and wrap via
  * `wrapDataBlock` before returning.
  */
 export interface ToolClient {
   githubGetIssue(url: string): Promise<GitHubIssue>;
-  tavilySearch(query: string, opts?: TavilySearchOptions): Promise<TavilySearchResponse>;
-  tavilyExtract(url: string): Promise<TavilyExtractResponse>;
+  tinyfishSearch(query: string, opts?: TinyfishSearchOptions): Promise<TinyfishSearchResponse>;
+  tinyfishExtract(url: string): Promise<TinyfishExtractResponse>;
 }

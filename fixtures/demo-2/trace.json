@@ -4,11 +4,11 @@
     "url": "https://github.com/demo/calcbox/issues/2"
   },
   {
-    "tool": "tavily_search",
+    "tool": "tinyfish_search",
     "query": "calcbox add(2, 3) returned 6 instead of 5"
   },
   {
-    "tool": "tavily_search",
+    "tool": "tinyfish_search",
     "query": "calcbox call add(2, 3)"
   },
   {

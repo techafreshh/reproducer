@@ -49,17 +49,17 @@ export const GithubGetIssueSchema = Type.Object({
 });
 
 /** Research: exact error strings, changelogs, related reports (scripted: canned). */
-export const TavilySearchSchema = Type.Object({
+export const TinyfishSearchSchema = Type.Object({
   query: Type.Optional(Type.String()),
   maxResults: Type.Optional(Type.Number()),
 });
 
-/** Research extract for one URL (scripted: canned). */
-export const TavilyExtractSchema = Type.Object({
+/** Research fetch for one URL (scripted: canned). */
+export const TinyfishExtractSchema = Type.Object({
   url: Type.Optional(Type.String()),
 });
 
-export type TavilySearchInput = Static<typeof TavilySearchSchema>;
+export type TinyfishSearchInput = Static<typeof TinyfishSearchSchema>;
 
 /** Fresh venv with pinned installs; returns an env handle (scripted: incrementing). */
 export const EnvCreateSchema = Type.Object({
@@ -98,8 +98,8 @@ export type SubmitReportInput = Static<typeof SubmitReportSchema>;
 /** The seven-tool surface, in dispatch order. */
 export const TOOL_SCHEMAS = {
   github_get_issue: GithubGetIssueSchema,
-  tavily_search: TavilySearchSchema,
-  tavily_extract: TavilyExtractSchema,
+  tinyfish_search: TinyfishSearchSchema,
+  tinyfish_fetch: TinyfishExtractSchema,
   env_create: EnvCreateSchema,
   env_run: EnvRunSchema,
   bisect: BisectToolSchema,
@@ -587,22 +587,22 @@ async function dispatchSession(
       continue;
     }
 
-    if (canonical === "tavilysearch" || canonical === "search" || canonical === "tavily") {
+    if (canonical === "tinyfishsearch" || canonical === "search") {
       if (!ensureHypothesis()) continue;
-      agent.emit("llm_turn", { hypothesis: currentHypothesis, tool: "tavily_search" });
+      agent.emit("llm_turn", { hypothesis: currentHypothesis, tool: "tinyfish_search" });
       const merged = nestedInput(step);
       const query = stringField(merged, ["query", "q"]) ?? "";
-      agent.emit("tool_call", { tool: "tavily_search", hypothesis: currentHypothesis, query });
+      agent.emit("tool_call", { tool: "tinyfish_search", hypothesis: currentHypothesis, query });
       addTokens(state, stepTokensOf(step, tokensPerCall));
       continue;
     }
 
-    if (canonical === "tavilyextract" || canonical === "extract") {
+    if (canonical === "tinyfishextract" || canonical === "tinyfishfetch" || canonical === "extract") {
       if (!ensureHypothesis()) continue;
-      agent.emit("llm_turn", { hypothesis: currentHypothesis, tool: "tavily_extract" });
+      agent.emit("llm_turn", { hypothesis: currentHypothesis, tool: "tinyfish_fetch" });
       const merged = nestedInput(step);
       const url = stringField(merged, ["url"]) ?? "";
-      agent.emit("tool_call", { tool: "tavily_extract", hypothesis: currentHypothesis, url });
+      agent.emit("tool_call", { tool: "tinyfish_fetch", hypothesis: currentHypothesis, url });
       addTokens(state, stepTokensOf(step, tokensPerCall));
       continue;
     }
