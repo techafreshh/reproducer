@@ -134,12 +134,19 @@ export interface SessionResult {
 export type SessionDriver = "scripted" | "live";
 
 /**
- * Driver selection: `live` only when both `NEBIUS_API_KEY` and `MODEL_REASON`
- * exist; otherwise `scripted`. No imports, no network — the dynamic
+ * Driver selection: `live` only when the selected provider's key
+ * (`OPENROUTER_API_KEY` / `DEEPSEEK_API_KEY`, via `MODEL_PROVIDER`) and
+ * `MODEL_REASON` are both set; otherwise `scripted`. Unknown
+ * `MODEL_PROVIDER` values throw. No imports, no network — the dynamic
  * `pi-agent-core` import happens in `resolveDriver`.
  */
 export function selectDriver(env: NodeJS.ProcessEnv = process.env): SessionDriver {
-  const apiKey = env.NEBIUS_API_KEY;
+  const raw = env.MODEL_PROVIDER;
+  const provider = (raw ?? "openrouter").toLowerCase();
+  if (provider !== "openrouter" && provider !== "deepseek") {
+    throw new Error(`unknown MODEL_PROVIDER "${raw}": expected "openrouter" or "deepseek"`);
+  }
+  const apiKey = provider === "deepseek" ? env.DEEPSEEK_API_KEY : env.OPENROUTER_API_KEY;
   const model = env.MODEL_REASON;
   if (
     apiKey !== undefined &&

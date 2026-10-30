@@ -55,9 +55,9 @@ const PIP_INSTALL_TIMEOUT_MS = 300000;
 /** Filesize rlimit for sandboxed commands, in 512-byte blocks (1 GiB). */
 const FSIZE_LIMIT_BLOCKS = 2097152;
 
-// Parent secrets that must never reach the child: the issue's literal
-// `TAVILIS_API_KEY` plus the real `TAVILY_API_KEY` from `.env.example`.
-const SECRET_KEYS = ["NEBIUS_API_KEY", "TAVILIS_API_KEY", "TAVILY_API_KEY", "GITHUB_TOKEN"];
+// Parent secrets that must never reach the child: the model provider keys
+// plus `TINYFISH_API_KEY`, the historical `TAVILIS_API_KEY` typo, and `GITHUB_TOKEN`.
+const SECRET_KEYS = ["OPENROUTER_API_KEY", "DEEPSEEK_API_KEY", "TINYFISH_API_KEY", "TAVILIS_API_KEY", "GITHUB_TOKEN"];
 
 /** Copy of `process.env` minus the secret keys; proxy/PyPI vars pass through for pip. */
 function scrubbedEnv(): NodeJS.ProcessEnv {

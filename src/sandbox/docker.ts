@@ -20,7 +20,7 @@ export const DOCKER_IMAGE = "python:3.12-slim";
 const PIP_INSTALL_TIMEOUT_MS = 300000;
 
 // Parent secrets that must never reach the child: mirrors local.ts.
-const SECRET_KEYS = ["NEBIUS_API_KEY", "TAVILIS_API_KEY", "TAVILY_API_KEY", "GITHUB_TOKEN"];
+const SECRET_KEYS = ["OPENROUTER_API_KEY", "DEEPSEEK_API_KEY", "TINYFISH_API_KEY", "TAVILIS_API_KEY", "GITHUB_TOKEN"];
 
 /** Copy of `process.env` minus the secret keys. */
 function scrubbedEnv(): NodeJS.ProcessEnv {
