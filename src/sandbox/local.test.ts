@@ -30,20 +30,22 @@ describe("local sandbox", () => {
 
   it("hides parent secrets from the child env", () => {
     const saved = {
-      NEBIUS_API_KEY: process.env.NEBIUS_API_KEY,
+      OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
+      DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY,
+      TINYFISH_API_KEY: process.env.TINYFISH_API_KEY,
       TAVILIS_API_KEY: process.env.TAVILIS_API_KEY,
-      TAVILY_API_KEY: process.env.TAVILY_API_KEY,
       GITHUB_TOKEN: process.env.GITHUB_TOKEN,
     };
-    process.env.NEBIUS_API_KEY = "secret";
+    process.env.OPENROUTER_API_KEY = "secret";
+    process.env.DEEPSEEK_API_KEY = "secret";
+    process.env.TINYFISH_API_KEY = "secret";
     process.env.TAVILIS_API_KEY = "secret";
-    process.env.TAVILY_API_KEY = "secret";
     process.env.GITHUB_TOKEN = "secret";
     try {
       const env = envCreate({});
       const leaked = envRun(
         env.handle,
-        `python -c "import os; print(any(k in os.environ for k in ['NEBIUS_API_KEY', 'TAVILIS_API_KEY', 'TAVILY_API_KEY', 'GITHUB_TOKEN']))"`,
+        `python -c "import os; print(any(k in os.environ for k in ['OPENROUTER_API_KEY', 'DEEPSEEK_API_KEY', 'TINYFISH_API_KEY', 'TAVILIS_API_KEY', 'GITHUB_TOKEN']))"`,
       );
       expect(leaked.exitCode).toBe(0);
       expect(leaked.stdout.trim()).toBe("False");

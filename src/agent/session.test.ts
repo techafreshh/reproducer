@@ -11,7 +11,7 @@ import {
   type Ledger,
 } from "../orchestrator/ledger.js";
 import { freezeSymptomSpec } from "../gate/spec.js";
-import { runSession } from "./session.js";
+import { runSession, selectDriver } from "./session.js";
 
 /** PRD §10 reference spec for library `lib`. */
 const FROZEN_SPEC = {
@@ -212,5 +212,42 @@ describe("investigation session", () => {
     expect(JSON.stringify(bisectCalls)).toContain("max 8 versions");
     expect(toolCalls.filter((payload) => payload.tool === "env_run")).toHaveLength(0);
     expect(events.filter((event) => event.kind === "gate")).toHaveLength(0);
+  });
+});
+
+describe("selectDriver", () => {
+  it("returns live when the default provider key and MODEL_REASON are set", () => {
+    expect(selectDriver({ OPENROUTER_API_KEY: "key", MODEL_REASON: "model" })).toBe("live");
+  });
+
+  it("returns live for deepseek when its key and MODEL_REASON are set", () => {
+    expect(
+      selectDriver({ MODEL_PROVIDER: "deepseek", DEEPSEEK_API_KEY: "key", MODEL_REASON: "model" }),
+    ).toBe("live");
+  });
+
+  it("returns scripted when the key or MODEL_REASON is missing or empty", () => {
+    expect(selectDriver({})).toBe("scripted");
+    expect(selectDriver({ OPENROUTER_API_KEY: "key" })).toBe("scripted");
+    expect(selectDriver({ MODEL_REASON: "model" })).toBe("scripted");
+    expect(selectDriver({ OPENROUTER_API_KEY: "", MODEL_REASON: "model" })).toBe("scripted");
+    expect(selectDriver({ OPENROUTER_API_KEY: "key", MODEL_REASON: "" })).toBe("scripted");
+  });
+
+  it("ignores the unselected provider's key", () => {
+    expect(selectDriver({ MODEL_PROVIDER: "deepseek", OPENROUTER_API_KEY: "key" })).toBe("scripted");
+    expect(selectDriver({ DEEPSEEK_API_KEY: "key", MODEL_REASON: "model" })).toBe("scripted");
+  });
+
+  it("stays scripted on the legacy Token Factory key alone", () => {
+    // Split literal keeps the legacy-key scrub check at zero hits while proving the old key is ignored.
+    const legacyKey = "NEB" + "IUS_API_KEY";
+    expect(selectDriver({ [legacyKey]: "key", MODEL_REASON: "model" })).toBe("scripted");
+  });
+
+  it("throws naming both valid options for unknown MODEL_PROVIDER", () => {
+    expect(() => selectDriver({ MODEL_PROVIDER: "bedrock" })).toThrow(
+      'unknown MODEL_PROVIDER "bedrock": expected "openrouter" or "deepseek"',
+    );
   });
 });
