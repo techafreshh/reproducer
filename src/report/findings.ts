@@ -40,11 +40,11 @@ export type ResearchVerdict =
   | "likely-misconfiguration";
 
 /**
- * Collect deduplicated `https://` citation URLs from canned Tavily results.
+ * Collect deduplicated `https://` citation URLs from canned TinyFish results.
  * Reads `searches[].results[].url` plus the top-level `extract.url`; anything
  * missing, non-string, or non-`https://` is skipped. Order is first-seen.
  */
-export function collectCitationUrls(cannedTavily: unknown): string[] {
+export function collectCitationUrls(cannedTinyfish: unknown): string[] {
   const urls: string[] = [];
   const seen = new Set<string>();
   const push = (value: unknown): void => {
@@ -53,8 +53,8 @@ export function collectCitationUrls(cannedTavily: unknown): string[] {
       urls.push(value);
     }
   };
-  if (typeof cannedTavily !== "object" || cannedTavily === null) return urls;
-  const root = cannedTavily as Record<string, unknown>;
+  if (typeof cannedTinyfish !== "object" || cannedTinyfish === null) return urls;
+  const root = cannedTinyfish as Record<string, unknown>;
   const searches = root.searches;
   if (Array.isArray(searches)) {
     for (const search of searches) {

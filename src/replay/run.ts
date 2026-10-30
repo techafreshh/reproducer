@@ -4,7 +4,7 @@
  *
  * `--replay <dir>` (and the `REPLAY=1` env toggle) routes here from
  * `src/cli.ts`. The fixture directory is the single source of canned inputs:
- * `issue.json`, hash-keyed `tavily/<sha256(query)>.json`, and the scripted
+ * `issue.json`, hash-keyed `tinyfish/<sha256(query)>.json`, and the scripted
  * `trace.json` session. Every stage reuses the live code paths — the ledger
  * (`insertRun`/`appendEvent`/`putArtifact`/`setRunOutcome`), the scripted
  * triage provider plus `runTriage` (freeze + research queries), the
@@ -181,7 +181,7 @@ export function enrichEnvRuns(
  * Drive the whole engine once on a fixture directory: parse the issue URL,
  * load the canned spec + trace, replay the issue through `FixturesClient`,
  * freeze the spec via the scripted triage provider (`runTriage`), replay
- * each derived research query through the hash-keyed Tavily seam, execute
+ * each derived research query through the hash-keyed TinyFish seam, execute
  * the trace's `env_run` steps with real python, and submit through
  * `runSession` (grading, `repro.py`/`findings.md` artifacts, terminal
  * outcome). Returns the ledger run id and its terminal status.
@@ -215,7 +215,7 @@ export async function runReplay(
     );
 
     for (const query of queries) {
-      const response = await client.tavilySearch(query);
+      const response = await client.tinyfishSearch(query);
       appendEvent(db, runId, "research", { query, results: response.results });
     }
 

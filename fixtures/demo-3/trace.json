@@ -4,11 +4,11 @@
     "url": "https://github.com/demo/sleepywait/issues/3"
   },
   {
-    "tool": "tavily_search",
+    "tool": "tinyfish_search",
     "query": "sleepywait sleepwait() never returns; the call hangs indefinitely"
   },
   {
-    "tool": "tavily_search",
+    "tool": "tinyfish_search",
     "query": "sleepywait sleepwait() never returns"
   },
   {

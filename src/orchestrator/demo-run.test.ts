@@ -33,11 +33,11 @@ describe("demo-1 fixture bundle", () => {
     expect(typeof issue.title).toBe("string");
     expect(issue.body).toContain("ValueError");
 
-    const tavily = JSON.parse(readFileSync(join(FIXTURE_DIR, "tavily.json"), "utf8")) as {
+    const tinyfish = JSON.parse(readFileSync(join(FIXTURE_DIR, "tinyfish.json"), "utf8")) as {
       searches: Array<{ results: Array<{ url: string }> }>;
     };
-    expect(tavily.searches.length).toBeGreaterThan(0);
-    expect(tavily.searches[0]?.results.length).toBeGreaterThanOrEqual(2);
+    expect(tinyfish.searches.length).toBeGreaterThan(0);
+    expect(tinyfish.searches[0]?.results.length).toBeGreaterThanOrEqual(2);
 
     const plan = JSON.parse(readFileSync(join(FIXTURE_DIR, "plan.json"), "utf8")) as {
       symptomSpec: unknown;
@@ -113,7 +113,7 @@ describe("runScriptedDemo issue-14 report contract", () => {
   function tempFixtureDir(planOverride: Record<string, unknown>): string {
     const dir = mkdtempSync(join(tmpdir(), "reproducer-issue14-"));
     writeFileSync(join(dir, "issue.json"), readFileSync(join(FIXTURE_DIR, "issue.json"), "utf8"));
-    writeFileSync(join(dir, "tavily.json"), readFileSync(join(FIXTURE_DIR, "tavily.json"), "utf8"));
+    writeFileSync(join(dir, "tinyfish.json"), readFileSync(join(FIXTURE_DIR, "tinyfish.json"), "utf8"));
     const base = JSON.parse(readFileSync(join(FIXTURE_DIR, "plan.json"), "utf8")) as Record<string, unknown>;
     writeFileSync(join(dir, "plan.json"), JSON.stringify({ ...base, ...planOverride }));
     return dir;

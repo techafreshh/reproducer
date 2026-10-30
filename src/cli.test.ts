@@ -48,7 +48,7 @@ describe("cli main()", () => {
   it("runs the scripted demo fixture end-to-end with no API keys", () => {
     const scriptedDb = join(dbDir, "scripted-ledger.db");
     const savedEnv = { ...process.env };
-    for (const key of ["OPENROUTER_API_KEY", "DEEPSEEK_API_KEY", "TAVILY_API_KEY", "TAVILIS_API_KEY", "GITHUB_TOKEN", "MODEL_REASON"]) {
+    for (const key of ["OPENROUTER_API_KEY", "DEEPSEEK_API_KEY", "TINYFISH_API_KEY", "TAVILIS_API_KEY", "GITHUB_TOKEN", "MODEL_REASON"]) {
       delete process.env[key];
     }
     try {

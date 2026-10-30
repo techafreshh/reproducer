@@ -44,7 +44,7 @@ Judges may not test at all — the video must stand alone, and the dashboard mus
 
 **Core pipeline**
 - [ ] Ingest + triage (MODEL_FAST): issue → structured **symptom spec** JSON (library, versions, symptom class, verbatim error strings, stack-frame signatures, trigger description), then **frozen + latched** in the ledger
-- [ ] Research phase (Tavily in MODEL_REASON session): exact error strings, changelog mining for the version range, related issues/SO; verdict per branch: known-bug-fixed-later / likely-regression / likely-misconfiguration
+- [ ] Research phase (TinyFish in MODEL_REASON session): exact error strings, changelog mining for the version range, related issues/SO; verdict per branch: known-bug-fixed-later / likely-regression / likely-misconfiguration
 - [ ] Hypothesize: 1–3 root-cause candidates, each with a falsifiable prediction
 - [ ] Build & repro loop: sandbox env, minimal repro script, gate-graded runs, shrink toward minimal (≤8 sandbox runs/hypothesis, ≤3 hypotheses)
 - [ ] Bisect: PyPI version list → run verified repro across ≤8 versions → last-good/first-bad
@@ -59,9 +59,9 @@ Judges may not test at all — the video must stand alone, and the dashboard mus
 
 **Platform & safety**
 - [ ] Symptom gate: deterministic matcher (exception class, ≥N stack frames, wrong-output rules, hang timeout)
-- [ ] Sanitizer boundary before every LLM prompt (issue text + all Tavily results)
+- [ ] Sanitizer boundary before every LLM prompt (issue text + all TinyFish results)
 - [ ] Sandbox dual-mode: local venv (dev) + docker (compose/VPS), no keys ever in sandbox env
-- [ ] Replay mode: bundled fixtures, zero GitHub/Tavily keys required
+- [ ] Replay mode: bundled fixtures, zero GitHub/TinyFish keys required
 - [ ] Job queue + SQLite run ledger (runs, events, artifacts, symptom specs)
 - [ ] Three pre-verified demo issue fixtures + one own-repo Action demo
 - [ ] Deliverables: MIT LICENSE, README (≤10-step setup, architecture diagram, gate explanation, v1 scope, security), ≤3-min video, Nebius/NVIDIA feedback section, persistent demo deployment
@@ -77,7 +77,7 @@ Judges may not test at all — the video must stand alone, and the dashboard mus
 
 ### Operator checklist (never backlog issues — the build agent cannot do these)
 
-- [ ] Provide API keys in `.env` (`NEBIUS_BASE_URL`, `NEBIUS_API_KEY`, `MODEL_FAST`, `MODEL_REASON`, `TAVILY_API_KEY`, `GITHUB_TOKEN`) — product runtime only; CI and acceptance scenarios must never need them
+- [ ] Provide API keys in `.env` (`NEBIUS_BASE_URL`, `NEBIUS_API_KEY`, `MODEL_FAST`, `MODEL_REASON`, `TINYFISH_API_KEY`, `GITHUB_TOKEN`) — product runtime only; CI and acceptance scenarios must never need them
 - [ ] Demo-issue research: shortlist ≥5 candidates, verify repro + bisect boundary locally, user approves 3; bundle as fixtures
 - [ ] Seed the own-repo demo issue for the GitHub Action path
 - [ ] VPS demo deployment on techa.pro (free, live until Dec 15, 2026)
@@ -127,7 +127,7 @@ reproducer/
     cli.ts                    # reproducer run <url> [--replay] [--post]
     orchestrator/             # queue.ts, ledger.ts, budgets.ts
     llm/                      # provider factory: live (Token Factory) | scripted driver
-    agent/tools/              # github_get_issue, tavily_search, tavily_extract,
+    agent/tools/              # github_get_issue, tinyfish_search, tinyfish_fetch,
                               # env_create, env_run, bisect, submit_report
     gate/                     # spec schema, freeze/latch, traceback parser, verdicts
     sandbox/                  # env handles: local.ts + docker.ts, pypi.ts
@@ -136,8 +136,8 @@ reproducer/
     replay/                   # fixture loading, tool shims
     dashboard/                # server.ts, public/
     action/                   # GitHub Action composite
-  fixtures/demo-{1,2,3}/      # issue JSON, cached Tavily per query, cached verdicts
-  scripts/smoke/              # token-factory.mts, tavily.mts, sandbox.mts
+  fixtures/demo-{1,2,3}/      # issue JSON, cached TinyFish per query, cached verdicts
+  scripts/smoke/              # token-factory.mts, tinyfish.mts, sandbox.mts
 ```
 
 ### Key patterns & decisions
@@ -147,8 +147,8 @@ reproducer/
 3. **Deterministic gate:** verdicts `reproduced` / `not-reproduced` / `inconclusive` computed by pure code; the agent sees only verdicts, never gate internals.
 4. **Dual-mode sandbox:** local mode (fresh `python3 -m venv`, pinned installs, subprocess + hard timeout + `ulimit` rlimits, proxy-env best-effort network allowlist) since Docker is unavailable in this WSL distro; docker mode (`docker run --rm --network none --memory --cpus --pids-limit` for runs; networked step only for installs) in compose/VPS.
 5. **Event-sourced ledger:** every tool call, gate verdict, and LLM turn lands in SQLite via `agent.subscribe()` events → dashboard timeline is a pure read.
-6. **Sanitizer boundary:** ported pattern lists (see §9) applied to issue text and every Tavily result before context entry; untrusted content wrapped in delimited data blocks; flags surfaced as system-side notes.
-7. **Integration seams (build-order contract):** the dashboard starts via the package.json `start` script (`npm start`), listens on `process.env.PORT` (default 8080), and serves `GET /healthz` → `200 {"ok":true}`. The **first backlog issue is the walking skeleton**: CLI skeleton (`reproducer run` parses the issue URL and creates a ledger run) + SQLite ledger + dashboard serving `/healthz`. Every external boundary (LLM, GitHub REST, Tavily) sits behind an interface with a scripted/replay driver — CI and acceptance scenarios never need API keys; live drivers activate only when the operator supplies keys.
+6. **Sanitizer boundary:** ported pattern lists (see §9) applied to issue text and every TinyFish result before context entry; untrusted content wrapped in delimited data blocks; flags surfaced as system-side notes.
+7. **Integration seams (build-order contract):** the dashboard starts via the package.json `start` script (`npm start`), listens on `process.env.PORT` (default 8080), and serves `GET /healthz` → `200 {"ok":true}`. The **first backlog issue is the walking skeleton**: CLI skeleton (`reproducer run` parses the issue URL and creates a ledger run) + SQLite ledger + dashboard serving `/healthz`. Every external boundary (LLM, GitHub REST, TinyFish) sits behind an interface with a scripted/replay driver — CI and acceptance scenarios never need API keys; live drivers activate only when the operator supplies keys.
 8. **Toolchain contract:** any environment that builds/tests the product (compose `worker` image, CI runner, build snapshot) must include Node 22, Python 3 with pip + venv, and git — the sandbox creates Python venvs in-process.
 
 ## 7. Tools/Features
@@ -158,7 +158,7 @@ reproducer/
 | Tool | Purpose | Write scope |
 |---|---|---|
 | `github_get_issue` | Ingest issue body/comments via public REST | read-only |
-| `tavily_search` / `tavily_extract` | Research: error strings, changelogs, related reports | read-only |
+| `tinyfish_search` / `tinyfish_fetch` | Research: error strings, changelogs, related reports | read-only |
 | `env_create(spec)` | Fresh venv, pinned installs (`pip install lib==X.Y.Z`), returns env handle | sandbox only |
 | `env_run(cmd)` | Execute with hard timeout; stdout/stderr/exit/traceback → symptom gate grades it | sandbox only |
 | `bisect(versions[])` | Version-matrix runner over the verified repro | sandbox only |
@@ -174,7 +174,7 @@ The agent decides what to try; the frozen symptom spec decides what counts as re
 - **Bisect:** PyPI `/pypi/<pkg>/json` `releases` enumerates versions (deprecated key — PEP 691 index-API fallback ready); pure-Python filter parses wheel tags (`py3-none-any`, `py2.py3-none-any`, sdist); ≤8 versions spanning reported→latest.
 - **Report:** `repro.py` runs standalone (no Reproducer runtime); `findings.md` = hypothesis, per-branch research verdict with citation URLs, bisect table, optional workaround/fix sketch, honest env-difference statement (Linux container vs reported environment).
 - **Dashboard:** runs list (status, verdict, budget burn) → run detail: tool-call timeline, gate verdicts per `env_run`, artifact viewer.
-- **Replay mode:** fixtures per demo issue — cached issue JSON, cached Tavily responses keyed by query hash, cached verdicts/traces; tool layer swaps to fixtures when `--replay`; LLM live only if keys present (trace regeneration).
+- **Replay mode:** fixtures per demo issue — cached issue JSON, cached TinyFish responses keyed by query hash, cached verdicts/traces; tool layer swaps to fixtures when `--replay`; LLM live only if keys present (trace regeneration).
 
 ## 8. Technology Stack
 
@@ -189,14 +189,14 @@ The agent decides what to try; the frozen symptom spec decides what counts as re
 | Models (env) | `MODEL_FAST` (Nemotron Nano/Super, e.g. `nvidia/nemotron-3-super-120b-a12b`) · `MODEL_REASON` (Nemotron Ultra, e.g. `nvidia/Llama-3_1-Nemotron-Ultra-253B-v1`) | exact slugs verified against `/v1/models` when keys land |
 | Ledger | better-sqlite3 | runs / events / artifacts / symptom_specs |
 | Dashboard | Hono + zero-build vanilla JS | no frontend build step before a deadline |
-| Research | Tavily REST (`POST /search`, `/extract`, Bearer auth) | free tier 1,000 credits/mo — cache into fixtures |
+| Research | TinyFish (`GET /search` + `X-API-Key`, `POST /fetch {urls, format: \"markdown\"}`) | free tier 12,000 search req/day + 1,000 fetch URLs/day — cache into fixtures |
 | Versions | PyPI JSON API (`/pypi/<pkg>/json`) | free, no key |
 | Tests | vitest | gate, sanitizer, traceback parser heavily unit-tested |
 | Sandbox | Python 3.14 host venvs (local mode) · dockerized python:3.12 (docker mode) | fixture libs must be 3.14-compatible |
 
 ## 9. Security & Configuration
 
-**Sanitizer boundary (before every LLM prompt).** Issue text and Tavily results are untrusted. Port pattern lists from the author's prior art (no `sanitize.py`/`posting_guard.py` exists on this machine; sources verified):
+**Sanitizer boundary (before every LLM prompt).** Issue text and TinyFish results are untrusted. Port pattern lists from the author's prior art (no `sanitize.py`/`posting_guard.py` exists on this machine; sources verified):
 - `~/projects/belt/url-extractor/inference.py` — `INVISIBLE_CHARS` (ZWSP, ZWNJ, ZWJ, LRM/RLM, word joiner, BOM, soft hyphen, Mongolian vowel separator, Arabic letter mark) and `_CONFUSABLES` homoglyph maps (Cyrillic, Greek, Roman numerals, dash/space lookalikes, digit lookalikes)
 - `~/projects/belt/html-entity-codec/inference.py` — extended invisible codepoint set (0x00AD, 0x061C, 0x115F/0x1160, 0x180E, 0x200B–0x200F, 0x2028–0x202E, 0x2060–0x206F, 0x3164, 0xFEFF, 0xFFA0)
 - Add per brief: **Unicode-tag block U+E0000–E007F** and variation selectors; instruction-shaped-line flags ("ignore previous", "system prompt", …).
@@ -206,7 +206,7 @@ Handling: strip invisibles, normalize confusables, flag homoglyph runs and instr
 **Sandbox isolation.** Hard timeout + resource caps per `env_run`; network allowlist (PyPI + target library endpoints only — proxy-env best-effort in local mode, `--network none` during runs in docker mode); **the sandbox never sees API keys**; target libs restricted to pure-Python wheels/sdists.
 
 **Secrets & posting.**
-- `NEBIUS_API_KEY`, `TAVILY_API_KEY`, `GITHUB_TOKEN` in `.env` only — never logged (redaction filter in logger), never committed (`.gitignore` from scaffold).
+- `NEBIUS_API_KEY`, `TINYFISH_API_KEY`, `GITHUB_TOKEN` in `.env` only — never logged (redaction filter in logger), never committed (`.gitignore` from scaffold).
 - Default: **nothing is posted anywhere**. Posting requires explicit `--post` **and** a repo allowlist in config.
 
 **Configuration (`.env`)**
@@ -216,7 +216,7 @@ NEBIUS_BASE_URL=https://api.tokenfactory.nebius.com/v1
 NEBIUS_API_KEY=...
 MODEL_FAST=<nemotron nano-or-super slug>
 MODEL_REASON=<nemotron ultra slug>
-TAVILY_API_KEY=...        # free tier, app.tavily.com
+TINYFISH_API_KEY=...      # free tier, search 12k req/day + fetch 1k URLs/day
 GITHUB_TOKEN=...          # optional; raises REST rate limits
 REPLAY=0|1                # fixture mode toggle (also --replay)
 ```
@@ -248,7 +248,7 @@ Status-code contract (pinned, enforced by the acceptance gate): unknown routes �
 
 ```yaml
 inputs: issue-url, post-comment (default true)
-secrets: NEBIUS_API_KEY, TAVILY_API_KEY, GITHUB_TOKEN
+secrets: NEBIUS_API_KEY, TINYFISH_API_KEY, GITHUB_TOKEN
 behavior: install CLI → run against the labeled issue → post comment with findings.md + trace link
 ```
 
@@ -275,7 +275,7 @@ createProvider({
 
 **MVP success = all of:**
 - [ ] End-to-end on all three demo issues: issue URL in → verified minimal repro out → bisect table matches the known regression boundary → report generated and trace renders
-- [ ] Replay mode runs the full demo with no live GitHub/Tavily keys (LLM only for optional trace regeneration; fixtures include cached verdicts)
+- [ ] Replay mode runs the full demo with no live GitHub/TinyFish keys (LLM only for optional trace regeneration; fixtures include cached verdicts)
 - [ ] `docker compose up` brings up service + dashboard
 - [ ] CLI, GitHub Action (on owned repo), and dashboard all demonstrably work
 - [ ] README: setup ≤10 steps, architecture diagram, symptom-gate explanation, v1 scope, security section
@@ -343,7 +343,7 @@ Validation: keyless replay passes all three fixtures; README walkthrough followe
 | No Docker in this WSL distro | Docker-mode sandbox & compose untestable locally | Local mode is the dev default; verify docker mode + compose on the VPS (or enable Docker Desktop WSL integration) |
 | Python 3.14 host vs fixture libs | Some libs may lag 3.14 support | 3.14 compatibility is an explicit demo-issue selection criterion; symptom spec carries optional python version |
 | Demo issues turn out nondeterministic | Bisect table contradicts reality | Shortlist ≥5, verify repro + boundary locally before user approval; swap freely before Day 4 |
-| Tavily free tier (1,000 credits/mo) | Live runs during demo could exhaust credits | Fixture caching, capped `max_results`, replay mode as the public-facing path |
+| TinyFish free tier (12k search req/day, 1k fetch URLs/day) | Live runs during demo could exhaust the allowance | Fixture caching, capped client-side results, replay mode as the public-facing path |
 | PyPI `releases` key deprecated | Version enumeration breaks someday | Working today; PEP 691 index-API fallback behind the same client |
 
 ## 15. Appendix
@@ -353,7 +353,8 @@ Validation: keyless replay passes all three fixtures; README walkthrough followe
 **Key references**
 - Pi SDK: https://github.com/earendil-works/pi (`packages/agent`, `packages/ai`)
 - Nebius Token Factory: https://docs.tokenfactory.nebius.com (quickstart, JSON mode, function calling)
-- Tavily API: https://docs.tavily.com/documentation/api-reference/endpoint/search
+- TinyFish Search API: https://docs.tinyfish.ai/search-api/reference
+- TinyFish Fetch API: https://docs.tinyfish.ai/fetch-api/reference
 - PyPI JSON API: https://docs.pypi.org/api/json/
 - Sanitizer pattern sources: `~/projects/belt/url-extractor/inference.py`, `~/projects/belt/html-entity-codec/inference.py`
 
