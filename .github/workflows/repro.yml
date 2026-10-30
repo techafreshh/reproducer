@@ -28,6 +28,7 @@ jobs:
       - name: Post repro evidence
         run: npm run cli -- run "${{ github.event.issue.html_url }}" --post --config reproducer.config.json
         env:
-          NEBIUS_API_KEY: ${{ secrets.NEBIUS_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           TINYFISH_API_KEY: ${{ secrets.TINYFISH_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

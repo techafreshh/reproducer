@@ -90,7 +90,7 @@ describe("createProvider", () => {
     );
   });
 
-  it("stays scripted on the legacy Token Factory key alone (legacy env vars are unread)", () => {
+  it("stays scripted on the legacy provider key alone (legacy env vars are unread)", () => {
     // Split literal keeps the legacy-key scrub check at zero hits while proving the old key is ignored.
     const legacyKey = "NEB" + "IUS_API_KEY";
     expect(createProvider({ [legacyKey]: "test-key", MODEL_FAST: "fast-model" }).tag).toBe(

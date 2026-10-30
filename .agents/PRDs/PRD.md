@@ -1,7 +1,7 @@
 # PRD: Reproducer
 
 **Tagline:** Turns bug reports into proof.
-**Track:** Coding and Agentic Engineering — Nebius x NVIDIA Global AI Hackathon (Devpost)
+**Track:** Coding and Agentic Engineering
 **Deadline:** Oct 30, 2026, 6:00pm WAT (10:00am PDT) · Demo must stay live & free until Dec 15, 2026
 **Repo:** `techafreshh/reproducer` (public, MIT) · **Status:** PRD approved — build executed via pi-dark-factory (instabox lanes)
 
@@ -13,7 +13,7 @@ Reproducer is an autonomous agent that takes a GitHub issue URL and returns **ev
 
 The system's load-bearing principle is inherited from the author's software-factory pattern: **the verifier is frozen before the implementer wakes up.** A fast model triages the issue into a symptom spec; the spec is then written to the ledger and latched — the investigation session (a slower reasoning model) has no tool that can modify it. The agent decides *what to try*; the frozen spec decides *what counts as reproduced*.
 
-MVP goal: by Oct 30, ship a public repo where a single CLI command (`reproducer <issue-url>`) runs the full pipeline end-to-end on three pre-verified demo issues, a keyless replay mode lets judges run everything without API keys, a one-page dashboard renders every tool call and artifact, a GitHub Action reproduces issues on the author's own repo, and a persistent demo stays live until judging ends — with all LLM inference on Nebius Token Factory (Nemotron models).
+MVP goal: by Oct 30, ship a public repo where a single CLI command (`reproducer <issue-url>`) runs the full pipeline end-to-end on three pre-verified demo issues, a keyless replay mode lets judges run everything without API keys, a one-page dashboard renders every tool call and artifact, a GitHub Action reproduces issues on the author's own repo, and a persistent demo stays live until judging ends — with all LLM inference via OpenRouter (DeepSeek direct fallback).
 
 ## 2. Mission
 
@@ -64,7 +64,7 @@ Judges may not test at all — the video must stand alone, and the dashboard mus
 - [ ] Replay mode: bundled fixtures, zero GitHub/TinyFish keys required
 - [ ] Job queue + SQLite run ledger (runs, events, artifacts, symptom specs)
 - [ ] Three pre-verified demo issue fixtures + one own-repo Action demo
-- [ ] Deliverables: MIT LICENSE, README (≤10-step setup, architecture diagram, gate explanation, v1 scope, security), ≤3-min video, Nebius/NVIDIA feedback section, persistent demo deployment
+- [ ] Deliverables: MIT LICENSE, README (≤10-step setup, architecture diagram, gate explanation, v1 scope, security), ≤3-min video, Model & research providers section, persistent demo deployment
 
 ### Out of Scope (v1 — stated loudly in README)
 
@@ -77,7 +77,7 @@ Judges may not test at all — the video must stand alone, and the dashboard mus
 
 ### Operator checklist (never backlog issues — the build agent cannot do these)
 
-- [ ] Provide API keys in `.env` (`NEBIUS_BASE_URL`, `NEBIUS_API_KEY`, `MODEL_FAST`, `MODEL_REASON`, `TINYFISH_API_KEY`, `GITHUB_TOKEN`) — product runtime only; CI and acceptance scenarios must never need them
+- [ ] Provide API keys in `.env` (`OPENROUTER_API_KEY`, `DEEPSEEK_API_KEY`, `MODEL_FAST`, `MODEL_REASON`, `TINYFISH_API_KEY`, `GITHUB_TOKEN`) — product runtime only; CI and acceptance scenarios must never need them
 - [ ] Demo-issue research: shortlist ≥5 candidates, verify repro + bisect boundary locally, user approves 3; bundle as fixtures
 - [ ] Seed the own-repo demo issue for the GitHub Action path
 - [ ] VPS demo deployment on techa.pro (free, live until Dec 15, 2026)
@@ -126,7 +126,7 @@ reproducer/
   src/
     cli.ts                    # reproducer run <url> [--replay] [--post]
     orchestrator/             # queue.ts, ledger.ts, budgets.ts
-    llm/                      # provider factory: live (Token Factory) | scripted driver
+    llm/                      # provider factory: live (OpenRouter / DeepSeek direct) | scripted driver
     agent/tools/              # github_get_issue, tinyfish_search, tinyfish_fetch,
                               # env_create, env_run, bisect, submit_report
     gate/                     # spec schema, freeze/latch, traceback parser, verdicts
@@ -137,7 +137,7 @@ reproducer/
     dashboard/                # server.ts, public/
     action/                   # GitHub Action composite
   fixtures/demo-{1,2,3}/      # issue JSON, cached TinyFish per query, cached verdicts
-  scripts/smoke/              # token-factory.mts, tinyfish.mts, sandbox.mts
+  scripts/smoke/              # live-provider.mts, tinyfish.mts, sandbox.mts
 ```
 
 ### Key patterns & decisions
@@ -168,7 +168,7 @@ The agent decides what to try; the frozen symptom spec decides what counts as re
 
 ### Feature specifications
 
-- **Triage (MODEL_FAST):** one structured-output call → symptom spec JSON validated against a TypeBox schema; research query generation; then freeze. Structured output via `openai` SDK direct call with `response_format: json_schema` (Token Factory supports it); Pi SDK for the session loop.
+- **Triage (MODEL_FAST):** one structured-output call → symptom spec JSON validated against a TypeBox schema; research query generation; then freeze. Structured output via `openai` SDK direct call with `response_format: json_schema` (supported by both providers); Pi SDK for the session loop.
 - **Symptom gate:** per-`env_run` grading — (a) exception class: last traceback's exception type matches the spec; (b) frames: ≥N (default 2) module+function signatures match the issue's traceback; (c) wrong-output: expected-vs-actual rules derived from the issue; (d) hang: timeout-threshold detection. `inconclusive` = trigger never reached (e.g. unrelated import failure) → agent repairs the env, not the logic.
 - **Repro loop:** iterate — write/run/shrink — with per-hypothesis budget; best minimal repro is promoted to the artifact.
 - **Bisect:** PyPI `/pypi/<pkg>/json` `releases` enumerates versions (deprecated key — PEP 691 index-API fallback ready); pure-Python filter parses wheel tags (`py3-none-any`, `py2.py3-none-any`, sdist); ≤8 versions spanning reported→latest.
@@ -184,9 +184,9 @@ The agent decides what to try; the frozen symptom spec decides what counts as re
 | Language | TypeScript, ESM, strict `tsc` | |
 | Package manager / dev runner | **bun 1.4.3** | production runs via tsx / compiled dist |
 | Agent runtime | **`@earendil-works/pi-agent-core` 1.4** | `@mariozechner/pi-agent-core` is its deprecated alias; same code |
-| LLM abstraction | **`@earendil-works/pi-ai` 1.4** | `createProvider({ baseUrl, api: openAICompletionsApi(), auth: envApiKeyAuth("NEBIUS_API_KEY") })`; TypeBox tool schemas; `agent.subscribe()` for trace |
-| Structured output | `openai` SDK (base_url override) → Token Factory `response_format: json_schema` | tool calling also confirmed supported |
-| Models (env) | `MODEL_FAST` (Nemotron Nano/Super, e.g. `nvidia/nemotron-3-super-120b-a12b`) · `MODEL_REASON` (Nemotron Ultra, e.g. `nvidia/Llama-3_1-Nemotron-Ultra-253B-v1`) | exact slugs verified against `/v1/models` when keys land |
+| LLM abstraction | **`@earendil-works/pi-ai` 1.4** | `createProvider({ baseUrl, api: openAICompletionsApi(), auth: envApiKeyAuth("OPENROUTER_API_KEY") })`; TypeBox tool schemas; `agent.subscribe()` for trace |
+| Structured output | `openai` SDK (base_url override) → OpenRouter / DeepSeek direct `response_format: json_schema` | tool calling also confirmed supported |
+| Models (env) | `MODEL_FAST` (e.g. `deepseek/deepseek-chat`) · `MODEL_REASON` (e.g. `deepseek/deepseek-reasoner`) | exact slugs verified against `/v1/models` when keys land |
 | Ledger | better-sqlite3 | runs / events / artifacts / symptom_specs |
 | Dashboard | Hono + zero-build vanilla JS | no frontend build step before a deadline |
 | Research | TinyFish (`GET /search` + `X-API-Key`, `POST /fetch {urls, format: \"markdown\"}`) | free tier 12,000 search req/day + 1,000 fetch URLs/day — cache into fixtures |
@@ -206,16 +206,18 @@ Handling: strip invisibles, normalize confusables, flag homoglyph runs and instr
 **Sandbox isolation.** Hard timeout + resource caps per `env_run`; network allowlist (PyPI + target library endpoints only — proxy-env best-effort in local mode, `--network none` during runs in docker mode); **the sandbox never sees API keys**; target libs restricted to pure-Python wheels/sdists.
 
 **Secrets & posting.**
-- `NEBIUS_API_KEY`, `TINYFISH_API_KEY`, `GITHUB_TOKEN` in `.env` only — never logged (redaction filter in logger), never committed (`.gitignore` from scaffold).
+- `OPENROUTER_API_KEY`, `DEEPSEEK_API_KEY`, `TINYFISH_API_KEY`, `GITHUB_TOKEN` in `.env` only — never logged (redaction filter in logger), never committed (`.gitignore` from scaffold).
 - Default: **nothing is posted anywhere**. Posting requires explicit `--post` **and** a repo allowlist in config.
 
 **Configuration (`.env`)**
 
 ```
-NEBIUS_BASE_URL=https://api.tokenfactory.nebius.com/v1
-NEBIUS_API_KEY=...
-MODEL_FAST=<nemotron nano-or-super slug>
-MODEL_REASON=<nemotron ultra slug>
+MODEL_PROVIDER=openrouter  # or deepseek for DeepSeek direct
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+OPENROUTER_API_KEY=...
+DEEPSEEK_API_KEY=...
+MODEL_FAST=<deepseek fast slug, e.g. deepseek/deepseek-chat>
+MODEL_REASON=<deepseek reasoning slug, e.g. deepseek/deepseek-reasoner>
 TINYFISH_API_KEY=...      # free tier, search 12k req/day + fetch 1k URLs/day
 GITHUB_TOKEN=...          # optional; raises REST rate limits
 REPLAY=0|1                # fixture mode toggle (also --replay)
@@ -248,7 +250,7 @@ Status-code contract (pinned, enforced by the acceptance gate): unknown routes �
 
 ```yaml
 inputs: issue-url, post-comment (default true)
-secrets: NEBIUS_API_KEY, TINYFISH_API_KEY, GITHUB_TOKEN
+secrets: OPENROUTER_API_KEY, DEEPSEEK_API_KEY, TINYFISH_API_KEY, GITHUB_TOKEN
 behavior: install CLI → run against the labeled issue → post comment with findings.md + trace link
 ```
 
@@ -256,9 +258,9 @@ behavior: install CLI → run against the labeled issue → post comment with fi
 
 ```ts
 createProvider({
-  id: "nebius", baseUrl: env.NEBIUS_BASE_URL,
+  id: "openrouter", baseUrl: env.OPENROUTER_BASE_URL,
   api: openAICompletionsApi(),
-  auth: envApiKeyAuth("Nebius", ["NEBIUS_API_KEY"]),
+  auth: envApiKeyAuth("OpenRouter", ["OPENROUTER_API_KEY", "DEEPSEEK_API_KEY"]),
   models: [/* MODEL_FAST, MODEL_REASON entries */],
 });
 ```
@@ -281,7 +283,7 @@ createProvider({
 - [ ] README: setup ≤10 steps, architecture diagram, symptom-gate explanation, v1 scope, security section
 - [ ] MIT LICENSE at repo root, auto-detected in the About section; no secrets committed
 - [ ] ≤3-min public YouTube demo video, no copyrighted music/trademarks, shows the project running
-- [ ] Feedback section on Nebius/NVIDIA tools written (Most Valuable Feedback prize: completeness, viability, impact)
+- [ ] Model & research providers section written (completeness, viability, impact)
 - [ ] Demo deployed and free until Dec 15, 2026
 
 **Quality indicators:** gate has zero LLM calls in its path; every reproduction claim traces to a stored verdict + runnable artifact; `inconclusive` never reported as `reproduced`; sanitizer unit tests cover all ported pattern classes.
@@ -292,7 +294,7 @@ createProvider({
 Goal: scaffold + unblocked-by-keys development path.
 - [ ] git init, MIT LICENSE, `.env.example`, `.gitignore`, scaffold; create `techafreshh/reproducer` + first push
 - [ ] Orchestrator skeleton: CLI, in-process queue, better-sqlite3 ledger
-- [ ] LLM provider factory with scripted driver (live Token Factory driver behind the same interface)
+- [ ] LLM provider factory with scripted driver (live OpenRouter / DeepSeek direct driver behind the same interface)
 - [ ] Triage session → validated symptom spec + freeze/latch; unit tests
 - [ ] Sanitizer v1 with ported pattern lists; unit tests
 - [ ] Demo-issue shortlist (≥5 candidates) begun; smoke scripts written (run when keys land)
@@ -319,7 +321,7 @@ Validation: labeled issue on own repo → comment posted; dashboard renders a fu
 Goal: submission-grade polish.
 - [ ] Demo issues #2 and #3 green; fixtures finalized (you approve the three)
 - [ ] Replay mode + fixture loading
-- [ ] README, video script + recording support, Nebius/NVIDIA feedback section
+- [ ] README, video script + recording support, Model & research providers section
 - [ ] Persistent deployment on techa.pro VPS (live until Dec 15)
 Validation: keyless replay passes all three fixtures; README walkthrough followed fresh succeeds.
 
@@ -339,7 +341,7 @@ Validation: keyless replay passes all three fixtures; README walkthrough followe
 
 | Risk | Impact | Mitigation |
 |---|---|---|
-| Nemotron tool-calling reliability via pi-ai unverified (no keys yet) | Could force an agent-loop rework mid-week | Mock-first architecture keeps all other work unblocked; on key arrival, smoke test decides pi-agent-core loop vs direct-openai-SDK loop within the hour |
+| Live provider tool-calling reliability unverified (no keys yet) | Could force an agent-loop rework mid-week | Mock-first architecture keeps all other work unblocked; on key arrival, smoke test decides pi-agent-core loop vs direct-openai-SDK loop within the hour |
 | No Docker in this WSL distro | Docker-mode sandbox & compose untestable locally | Local mode is the dev default; verify docker mode + compose on the VPS (or enable Docker Desktop WSL integration) |
 | Python 3.14 host vs fixture libs | Some libs may lag 3.14 support | 3.14 compatibility is an explicit demo-issue selection criterion; symptom spec carries optional python version |
 | Demo issues turn out nondeterministic | Bisect table contradicts reality | Shortlist ≥5, verify repro + boundary locally before user approval; swap freely before Day 4 |
@@ -352,7 +354,8 @@ Validation: keyless replay passes all three fixtures; README walkthrough followe
 
 **Key references**
 - Pi SDK: https://github.com/earendil-works/pi (`packages/agent`, `packages/ai`)
-- Nebius Token Factory: https://docs.tokenfactory.nebius.com (quickstart, JSON mode, function calling)
+- OpenRouter: https://openrouter.ai/docs/api-reference/overview (OpenAI-compatible completions gateway)
+- DeepSeek API: https://api-docs.deepseek.com/ (direct fallback, OpenAI-compatible)
 - TinyFish Search API: https://docs.tinyfish.ai/search-api/reference
 - TinyFish Fetch API: https://docs.tinyfish.ai/fetch-api/reference
 - PyPI JSON API: https://docs.pypi.org/api/json/
