@@ -4,7 +4,7 @@
 
 Reproducer takes a GitHub issue URL and returns evidence: it triages the report into a machine-checkable symptom spec, researches the error, forms falsifiable root-cause hypotheses, builds clean Python environments, writes and shrinks a minimal reproduction script, verifies the reported symptom through a deterministic gate, bisects the exact version where behavior changed, and publishes a citation-backed report.
 
-> Under active development for the Nebius x NVIDIA Global AI Hackathon (Devpost) — Coding and Agentic Engineering track. Full product spec: [`.agents/PRDs/PRD.md`](.agents/PRDs/PRD.md).
+> Under active development. Full product spec: [`.agents/PRDs/PRD.md`](.agents/PRDs/PRD.md).
 
 ## Setup
 
@@ -127,8 +127,11 @@ Stated loudly, sourced from the PRD's Out of Scope section:
 - **Secrets in `.env` only** — keys live in a local `.env` file, never in code, logs, or the sandbox; copy `.env.example` to `.env` and fill in values only when wiring live providers.
 
 ```env
-NEBIUS_BASE_URL=https://api.tokenfactory.nebius.com/v1
-NEBIUS_API_KEY=
+MODEL_PROVIDER=openrouter
+OPENROUTER_API_KEY=
+DEEPSEEK_API_KEY=
+# OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+# DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
 MODEL_FAST=
 MODEL_REASON=
 TINYFISH_API_KEY=
@@ -136,6 +139,6 @@ GITHUB_TOKEN=
 REPLAY=0
 ```
 
-## Nebius / NVIDIA Tools Feedback
+## Model & research providers
 
-We built the live path on the Nebius Token Factory: `NEBIUS_BASE_URL` plus `MODEL_FAST` and `MODEL_REASON` from `.env.example` select the fast triage model and the reasoning session model, and `createLiveProvider` in `src/llm/provider.ts` drives triage as a single structured `json_schema` call. Trying Nemotron-family models through that path was smooth — the schema-constrained call returns a spec-shaped object on the first attempt far more often than free-form JSON, which matters because triage output feeds straight into spec validation and freezing. The scripted driver versus live driver split paid off during development: scripted sessions reproduce the full pipeline deterministically for tests and demos, while flipping to the live provider exercises the same tool surface against real models with no code change. Fixture and replay ergonomics are the standout: bundled fixtures under `fixtures/` plus the replay toggle turn a cold clone into a passing end-to-end run with no keys, which is exactly the loop a judge or new contributor needs.
+The live path runs on [OpenRouter](https://openrouter.ai/docs/api-reference/overview) with [DeepSeek](https://api-docs.deepseek.com/) direct as the fallback: `MODEL_PROVIDER` (`openrouter` default, `deepseek` alt) plus `MODEL_FAST` and `MODEL_REASON` from `.env.example` select the fast triage model and the reasoning session model, and `createLiveProvider` in `src/llm/provider.ts` drives triage as a single structured `json_schema` call. The schema-constrained call returns a spec-shaped object on the first attempt far more often than free-form JSON, which matters because triage output feeds straight into spec validation and freezing. Research runs on [TinyFish Search](https://docs.tinyfish.ai/search-api/reference) with full-text extraction via [TinyFish Fetch](https://docs.tinyfish.ai/fetch-api/reference): error strings, changelogs, and related reports arrive with citation URLs that land in `findings.md`. The scripted driver versus live driver split paid off during development: scripted sessions reproduce the full pipeline deterministically for tests and demos, while flipping to the live provider exercises the same tool surface against real models with no code change. Fixture and replay ergonomics are the standout: bundled fixtures under `fixtures/` plus the replay toggle turn a cold clone into a passing end-to-end run with no keys.

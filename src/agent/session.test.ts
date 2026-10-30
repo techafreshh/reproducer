@@ -239,7 +239,7 @@ describe("selectDriver", () => {
     expect(selectDriver({ DEEPSEEK_API_KEY: "key", MODEL_REASON: "model" })).toBe("scripted");
   });
 
-  it("stays scripted on the legacy Token Factory key alone", () => {
+  it("stays scripted on the legacy provider key alone", () => {
     // Split literal keeps the legacy-key scrub check at zero hits while proving the old key is ignored.
     const legacyKey = "NEB" + "IUS_API_KEY";
     expect(selectDriver({ [legacyKey]: "key", MODEL_REASON: "model" })).toBe("scripted");
