@@ -197,6 +197,11 @@ async function init() {
   try {
     var runs = await fetchJson("/api/runs");
     renderRuns(runs);
+    var match = window.location.pathname.match(/^\/runs\/(\d+)$/);
+    if (match) {
+      var id = Number(match[1]);
+      if (id > 0) await loadRun(id);
+    }
   } catch (e) {
     var tbody = document.getElementById("runs-body");
     tbody.textContent = "";

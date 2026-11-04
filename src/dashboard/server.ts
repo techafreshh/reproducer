@@ -93,6 +93,14 @@ export function createApp(db: Ledger): Hono {
     return c.body(file.content, 200, { "content-type": file.contentType });
   });
 
+  app.get("/runs/:id", (c) => {
+    const run = getRun(db, Number(c.req.param("id")));
+    if (!run) return c.text("not found", 404);
+    const file = readPublicFile("index.html");
+    if (file === null) return c.text("not found", 404);
+    return c.body(file.content, 200, { "content-type": file.contentType });
+  });
+
   app.get("/static/:name", (c) => {
     const file = readPublicFile(c.req.param("name"));
     if (file === null) return c.text("not found", 404);
