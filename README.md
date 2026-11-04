@@ -69,11 +69,12 @@ Any gate verdict — even non-`reproduced` — still exits 0 on the replay/scrip
 | `GET /api/runs/:id/artifacts/:name` | Fetch one artifact (`repro.py`, `findings.md`, …) |
 | `/` | Human run viewer — per-run trace renders in-page (click a row) |
 
-Fetch a run's standalone reproduction script and execute it (demo-3 hangs by design, so bound it with `timeout`):
+Fetch a run's standalone reproduction script and execute it (after running the demos above; demo-3 hangs by design, so bound it with `timeout`):
 
 ```sh
 curl -sf http://localhost:8080/api/runs/1/artifacts/repro.py -o /tmp/repro-1.py
 python3 /tmp/repro-1.py
+curl -sf http://localhost:8080/api/runs/3/artifacts/repro.py -o /tmp/repro-3.py
 timeout 5 python3 /tmp/repro-3.py; echo "exit: $?"
 ```
 
