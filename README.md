@@ -67,7 +67,7 @@ Any gate verdict — even non-`reproduced` — still exits 0 on the replay/scrip
 | `GET /api/runs/:id` | One run, with symptom spec and artifact/event summary |
 | `GET /api/runs/:id/events` | Per-run tool-call timeline |
 | `GET /api/runs/:id/artifacts/:name` | Fetch one artifact (`repro.py`, `findings.md`, …) |
-| `/runs/:id` | Human run-trace page in the dashboard UI |
+| `/` | Human run viewer — per-run trace renders in-page (click a row) |
 
 Fetch a run's standalone reproduction script and execute it (demo-3 hangs by design, so bound it with `timeout`):
 
