@@ -202,6 +202,21 @@ describe("dashboard app", () => {
     expect(body).toContain("/static/app.js");
   });
 
+  it("serves the per-run trace page for a known run id", async () => {
+    insertRun(db, "https://github.com/octocat/hello-world/issues/1");
+    const res = await app.request("/runs/1");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/html");
+    const body = await res.text();
+    expect(body).toContain("runs list");
+    expect(body).toContain("/static/app.js");
+  });
+
+  it("returns exactly 404 for unknown and non-integer run page ids", async () => {
+    expect((await app.request("/runs/999")).status).toBe(404);
+    expect((await app.request("/runs/abc")).status).toBe(404);
+  });
+
   it("serves app.js as javascript and style.css as css, 404 otherwise", async () => {
     const js = await app.request("/static/app.js");
     expect(js.status).toBe(200);
